@@ -20,5 +20,5 @@ desc:
 type:
   sword: true
   damage: $stats.damage
-  cooldown: 1.2
+  cooldown: 10
 rarity: legendary

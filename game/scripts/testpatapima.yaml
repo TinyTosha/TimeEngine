@@ -6,4 +6,5 @@ script:
   - "$function.nullstroke"
   - "$log.blue('Initializing starter kit...')"
   - "$inventory.GiveItem(1, 1)"
+  - "$inventory.GiveItem(1, 2)"
   - "$function.nullstroke"
