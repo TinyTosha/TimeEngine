@@ -6,6 +6,8 @@ texture:
     frames: 0
     fps: 0
   texture: bladetest.png
+  inventory_size: [16,16]
+  world_size: [128,128]
 stats:
   damage: 25
   strength: 5
