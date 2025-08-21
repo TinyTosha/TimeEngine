@@ -303,6 +303,14 @@ class RPGEngine:
                         self.selected_quest_id = quest_id
                         break
                     y_offset += 60
+            
+            # Проверяем клик по кнопке отмены квеста
+            if self.show_quest_details and self.selected_quest_id:
+                cancel_rect = pygame.Rect(200 + 400 - 100, 100 + 300 - 40, 80, 30)
+                if cancel_rect.collidepoint(mouse_pos):
+                    self.quest_system.cancel_quest(self.selected_quest_id)
+                    self.show_quest_details = False
+                    self.selected_quest_id = None
     
     def check_tooltip(self):
         mouse_pos = pygame.mouse.get_pos()
@@ -502,24 +510,24 @@ class RPGEngine:
         self.screen.blit(task_surface, (details_x + padding, details_y + y_offset))
         y_offset += 30
         
-        tasks = quest.get('quest_task', [])
-        for task in tasks:
-            if task.startswith('!quest_kill('):
-                match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
-                if match:
-                    enemy_id = int(match.group(1))
-                    required_count = int(match.group(2))
-                    
-                    enemy_name = f"Enemy {enemy_id}"
-                    enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
-                    if enemy_template:
-                        enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
-                    
-                    progress = self.quest_system.active_quests.get(self.selected_quest_id, {}).get('progress', 0)
-                    task_text = f"{self.localization.get('quest_kill')} {enemy_name} ({progress}/{required_count})"
-                    task_surface = desc_font.render(task_text, True, (200, 200, 200))
-                    self.screen.blit(task_surface, (details_x + padding, details_y + y_offset))
-                    y_offset += 25
+        quest_data = self.quest_system.active_quests.get(self.selected_quest_id, {})
+        task_progress = quest_data.get('progress', {})
+        
+        for task_id, task_info in task_progress.items():
+            if task_info['type'] == 'kill':
+                enemy_id = task_info['enemy_id']
+                required_count = task_info['required']
+                current_count = task_info['current']
+                
+                enemy_name = f"Enemy {enemy_id}"
+                enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
+                if enemy_template:
+                    enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
+                
+                task_text = f"{self.localization.get('quest_kill')} {enemy_name} ({current_count}/{required_count})"
+                task_surface = desc_font.render(task_text, True, (200, 200, 200))
+                self.screen.blit(task_surface, (details_x + padding, details_y + y_offset))
+                y_offset += 25
         
         y_offset += 10
         
@@ -549,6 +557,13 @@ class RPGEngine:
                     reward_surface = desc_font.render(reward_text, True, (0, 255, 0))
                     self.screen.blit(reward_surface, (details_x + padding, details_y + y_offset))
                     y_offset += 25
+        
+        # Кнопка отмены квеста
+        cancel_rect = pygame.Rect(details_x + details_width - 100, details_y + details_height - 40, 80, 30)
+        pygame.draw.rect(self.screen, (200, 50, 50), cancel_rect)
+        cancel_font = pygame.font.Font(None, 16)
+        cancel_text = cancel_font.render("Cancel", True, (255, 255, 255))
+        self.screen.blit(cancel_text, (cancel_rect.x + 20, cancel_rect.y + 8))
         
         # Кнопка закрытия
         close_rect = pygame.Rect(details_x + details_width - 40, details_y + 10, 30, 30)
@@ -716,6 +731,14 @@ class RPGEngine:
                             if self.show_quest_details and self.selected_quest_id:
                                 close_rect = pygame.Rect(200 + 400 - 40, 100 + 10, 30, 30)
                                 if close_rect.collidepoint(event.pos):
+                                    self.show_quest_details = False
+                                    self.selected_quest_id = None
+                                    continue
+                                
+                                # Проверяем клик по кнопке отмены квеста
+                                cancel_rect = pygame.Rect(200 + 400 - 100, 100 + 300 - 40, 80, 30)
+                                if cancel_rect.collidepoint(event.pos):
+                                    self.quest_system.cancel_quest(self.selected_quest_id)
                                     self.show_quest_details = False
                                     self.selected_quest_id = None
                                     continue

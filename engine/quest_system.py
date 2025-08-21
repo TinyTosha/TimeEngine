@@ -34,60 +34,65 @@ class QuestSystem:
     
     def give_quest(self, quest_id):
         if quest_id in self.quests and quest_id not in self.active_quests and quest_id not in self.completed_quests:
+            # Инициализируем прогресс для всех задач квеста
+            quest = self.quests[quest_id]
+            tasks = quest.get('quest_task', [])
+            task_progress = {}
+            
+            for i, task in enumerate(tasks):
+                if task.startswith('!quest_kill('):
+                    match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
+                    if match:
+                        enemy_id = int(match.group(1))
+                        task_progress[i] = {
+                            'type': 'kill',
+                            'enemy_id': enemy_id,
+                            'required': int(match.group(2)),
+                            'current': 0
+                        }
+            
             self.active_quests[quest_id] = {
-                'progress': 0,
+                'progress': task_progress,
                 'completed': False
             }
-            self.script_runner.colors = self.script_runner.colors  # Ensure colors are available
             print(f"\033[34m[i] Quest '{self.quests[quest_id].get('name')}' started!\033[0m")
             return True
         return False
     
     def cancel_quest(self, quest_id):
         if quest_id in self.active_quests:
+            quest_name = self.quests[quest_id].get('name', 'Unknown Quest')
             del self.active_quests[quest_id]
-            print(f"\033[34m[i] Quest '{self.quests[quest_id].get('name')}' canceled!\033[0m")
+            print(f"\033[34m[i] Quest '{quest_name}' canceled!\033[0m")
             return True
         return False
     
     def register_kill(self, enemy_id):
-        """Регистрирует убийство врага"""
+        """Регистрирует убийство врага и обновляет прогресс квестов"""
         if enemy_id not in self.kill_counter:
             self.kill_counter[enemy_id] = 0
         self.kill_counter[enemy_id] += 1
         
-        # Обновляем прогресс квестов
+        # Обновляем прогресс всех активных квестов
         for quest_id, quest_data in self.active_quests.items():
             if not quest_data['completed']:
                 self.update_quest_progress(quest_id, enemy_id)
     
     def update_quest_progress(self, quest_id, enemy_id):
-        quest = self.quests.get(quest_id)
-        if not quest:
-            return
-        
         quest_data = self.active_quests[quest_id]
-        tasks = quest.get('quest_task', [])
         
-        for task in tasks:
-            if task.startswith('!quest_kill('):
-                match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
-                if match:
-                    required_enemy_id = int(match.group(1))
-                    required_count = int(match.group(2))
-                    
-                    if enemy_id == required_enemy_id:
-                        current_kills = self.kill_counter.get(enemy_id, 0)
-                        progress = min(current_kills, required_count)
-                        
-                        if quest_data['progress'] != progress:
-                            quest_data['progress'] = progress
-                            enemy_name = f"Enemy {enemy_id}"
-                            enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
-                            if enemy_template:
-                                enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
-                            
-                            print(f"\033[34m[i] Quest progress: {enemy_name} ({progress}/{required_count})\033[0m")
+        for task_id, task_info in quest_data['progress'].items():
+            if task_info['type'] == 'kill' and task_info['enemy_id'] == enemy_id:
+                current_kills = self.kill_counter.get(enemy_id, 0)
+                task_info['current'] = min(current_kills, task_info['required'])
+                
+                # Логируем прогресс
+                enemy_name = f"Enemy {enemy_id}"
+                enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
+                if enemy_template:
+                    enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
+                
+                print(f"\033[34m[i] Quest progress: {enemy_name} ({task_info['current']}/{task_info['required']})\033[0m")
     
     def update_quests(self):
         for quest_id in list(self.active_quests.keys()):
@@ -96,26 +101,16 @@ class QuestSystem:
                 self.complete_quest(quest_id)
     
     def check_quest_completion(self, quest_id):
-        quest = self.quests.get(quest_id)
-        if not quest:
-            return False
-        
         quest_data = self.active_quests[quest_id]
-        tasks = quest.get('quest_task', [])
         
-        for task in tasks:
-            if task.startswith('!quest_kill('):
-                match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
-                if match:
-                    required_enemy_id = int(match.group(1))
-                    required_count = int(match.group(2))
-                    
-                    current_kills = self.kill_counter.get(required_enemy_id, 0)
-                    if current_kills >= required_count:
-                        quest_data['completed'] = True
-                        return True
+        # Проверяем completion всех задач
+        all_tasks_completed = True
+        for task_info in quest_data['progress'].values():
+            if task_info['current'] < task_info['required']:
+                all_tasks_completed = False
+                break
         
-        return False
+        return all_tasks_completed
     
     def complete_quest(self, quest_id):
         quest = self.quests.get(quest_id)
@@ -183,26 +178,19 @@ class QuestSystem:
                 y_offset += line_height
                 
                 # Прогресс квеста
-                tasks = quest.get('quest_task', [])
-                for task in tasks:
-                    if task.startswith('!quest_kill('):
-                        match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
-                        if match:
-                            enemy_id = int(match.group(1))
-                            required_count = int(match.group(2))
-                            
-                            # Получаем имя врага
-                            enemy_name = f"Enemy {enemy_id}"
-                            enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
-                            if enemy_template:
-                                enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
-                            
-                            # Отображаем прогресс
-                            progress_text = name_font.render(
-                                f"{self.localization.get('quest_kill')} {enemy_name} ({quest_data['progress']}/{required_count})", 
-                                True, (200, 200, 200)
-                            )
-                            screen.blit(progress_text, (quest_log_x + 10, quest_log_y + y_offset))
-                            y_offset += line_height
+                for task_info in quest_data['progress'].values():
+                    if task_info['type'] == 'kill':
+                        enemy_id = task_info['enemy_id']
+                        enemy_name = f"Enemy {enemy_id}"
+                        enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
+                        if enemy_template:
+                            enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
+                        
+                        progress_text = name_font.render(
+                            f"{self.localization.get('quest_kill')} {enemy_name} ({task_info['current']}/{task_info['required']})", 
+                            True, (200, 200, 200)
+                        )
+                        screen.blit(progress_text, (quest_log_x + 10, quest_log_y + y_offset))
+                        y_offset += line_height
                 
                 y_offset += 5

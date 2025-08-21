@@ -1,15 +1,15 @@
-name: "Govnoedik"
-id: 0
+name: "Lord Amogus [Boss]"
+id: 1
 texture:
   animate:
     on: false
     frames: 0
     fps: 0
   texture: enemytest.png
-  world_size: [64, 128]
+  world_size: [128, 256]
 stats:
-  damage: 5
-  health: 150
+  damage: 1
+  health: 1000
   max_health: 150
   attack_cooldown: 1.5
   attack_range: 70

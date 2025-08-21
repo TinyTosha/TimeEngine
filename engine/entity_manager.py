@@ -12,24 +12,24 @@ class Entity:
         self.stats = data.get('stats', {})
         self.behavior = data.get('behavior', {})
         self.texture = None
-        
+    
         # Позиция и респавн
         self.spawn_x = spawn_x
         self.spawn_y = spawn_y
         self.position = [spawn_x, spawn_y]
-        
-        # Статы
+    
+        # Статы - ИСПРАВЛЕНИЕ БАГА С HP!
         self.attack_cooldown = 0
-        self.health = self.stats.get('health', 100)
-        self.max_health = self.stats.get('max_health', self.health)
+        self.max_health = self.stats.get('health', 100)  # Берем health из stats
+        self.health = self.max_health  # Начинаем с полного HP!
         self.show_health_bar = False
         self.alive = True
-        
+    
         # Респавн
         self.respawn_time = self.stats.get('respawn_time', 10.0)
         self.respawn_timer = 0
         self.is_respawning = False
-        
+    
         self.load_texture()
     
     def load_texture(self):
@@ -80,7 +80,7 @@ class Entity:
     def respawn(self):
         self.is_respawning = False
         self.alive = True
-        self.health = self.max_health
+        self.health = self.max_health  # ВОССТАНАВЛИВАЕМ ПОЛНОЕ HP!
         self.position = [self.spawn_x, self.spawn_y]
         self.show_health_bar = False
     
@@ -117,20 +117,28 @@ class Entity:
             self.render_health_bar(screen, camera_offset)
     
     def render_health_bar(self, screen, camera_offset):
-        bar_width = 60
-        bar_height = 6
+        bar_width = 90  # Увеличили в 1.5 раза (60 * 1.5 = 90)
+        bar_height = 9   # Увеличили в 1.5 раза (6 * 1.5 = 9)
         x = self.position[0] - bar_width // 2 - camera_offset[0]
-        y = self.position[1] - 40 - camera_offset[1]
+        y = self.position[1] - 50 - camera_offset[1]  # Подняли выше
         
         # Фон
         pygame.draw.rect(screen, (50, 50, 50), (x, y, bar_width, bar_height))
         
-        # Здоровье
-        health_width = max(0, (self.health / self.max_health) * bar_width)
+        # Здоровье (в процентах)
+        health_percent = self.health / self.max_health
+        health_width = max(0, health_percent * bar_width)
         pygame.draw.rect(screen, (255, 0, 0), (x, y, health_width, bar_height))
         
         # Обводка
         pygame.draw.rect(screen, (100, 100, 100), (x, y, bar_width, bar_height), 1)
+        
+        # Текст HP
+        font = pygame.font.Font(None, 12)
+        hp_text = font.render(f"{int(self.health)}/{int(self.max_health)}", True, (255, 255, 255))
+        text_x = x + (bar_width - hp_text.get_width()) // 2
+        text_y = y - 15
+        screen.blit(hp_text, (text_x, text_y))
 
 class EntityManager:
     def __init__(self, script_runner):
