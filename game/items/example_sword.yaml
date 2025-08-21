@@ -1,0 +1,20 @@
+name: "Ruby Dagger"
+id: 1
+texture:
+  animate:
+    on: false
+    frames: 0
+    fps: 0
+  texture: bladetest.png
+  inventory_size: [22,22]
+  world_size: [64,64]
+stats:
+  Damage: 25
+desc:
+  - "Starter dagger"
+  - "$function.nullstroke"
+  - "(from example)"
+type:
+  sword: true
+  damage: $stats.Damage
+  cooldown: 0

@@ -3,19 +3,53 @@ import os
 import yaml
 import re
 import shutil
+import math
 from .item_loader import ItemLoader
 from .inventory import Inventory
 from .script_runner import ScriptRunner
 from .cache_manager import CacheManager
+from .entity_manager import EntityManager
+from .health_system import HealthSystem
+
+class Camera:
+    def __init__(self, screen_width, screen_height):
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.offset_x = 0
+        self.offset_y = 0
+        self.target_x = 0
+        self.target_y = 0
+        self.smoothness = 0.1
+    
+    def update(self, target_x, target_y):
+        # Плавное слежение за целью
+        self.target_x = target_x - self.screen_width // 2
+        self.target_y = target_y - self.screen_height // 2
+        
+        self.offset_x += (self.target_x - self.offset_x) * self.smoothness
+        self.offset_y += (self.target_y - self.offset_y) * self.smoothness
+    
+    def get_offset(self):
+        return (int(self.offset_x), int(self.offset_y))
+    
+    def apply_offset(self, x, y):
+        return (x - self.offset_x, y - self.offset_y)
 
 class RPGEngine:
     def __init__(self, screen_width=800, screen_height=600):
         pygame.init()
         self.screen = pygame.display.set_mode((screen_width, screen_height))
-        pygame.display.set_caption("RPG Engine")
+        pygame.display.set_caption("TimeEngine v5")
         
         self.clock = pygame.time.Clock()
         self.running = True
+        self.delta_time = 0
+        
+        # Камера
+        self.camera = Camera(screen_width, screen_height)
+        
+        # Система здоровья
+        self.health_system = HealthSystem()
         
         # Менеджер кэша
         self.cache_manager = CacheManager()
@@ -23,7 +57,11 @@ class RPGEngine:
         # Загрузка ресурсов
         self.item_loader = ItemLoader()
         self.inventory = Inventory(self.cache_manager)
-        self.script_runner = ScriptRunner(self.inventory, self.item_loader)
+        self.script_runner = ScriptRunner(self.inventory, self.item_loader, self.health_system)
+        
+        # Менеджер сущностей (передаем script_runner)
+        self.entity_manager = EntityManager(self.script_runner)
+        self.script_runner.entity_manager = self.entity_manager
         
         # Игрок
         self.player = self.create_player()
@@ -32,19 +70,27 @@ class RPGEngine:
         # Выбранный предмет
         self.selected_slot = None
         self.selected_item = None
-        self.item_state = "idle"  # idle, attacking
+        self.item_state = "idle"
         self.attack_progress = 0
-        self.attack_direction = "down"  # down, up
+        self.attack_direction = "down"
         
-        # Кд для клавиш выбора слотов (1-9)
-        self.key_cooldowns = {i: 0 for i in range(1, 10)}  # Кд для клавиш 1-9
-        self.key_cooldown_duration = 10  # ~0.17 секунды (10 кадров при 60 FPS)
+        # Tooltip
+        self.show_tooltip = False
+        self.tooltip_item = None
+        self.tooltip_mouse_pos = (0, 0)
+        
+        # Кд для клавиш
+        self.key_cooldowns = {i: 0 for i in range(1, 10)}
+        self.key_cooldown_duration = 10
         
         # Загрузка предметов и скриптов
         self.load_game_data()
-        
-        # Загружаем кд слотов из кэша
         self.cache_manager.load_slot_cooldowns()
+        
+        # Запускаем скрипты с callonstart=true
+        for script_id, script_data in self.script_runner.scripts.items():
+            if script_data['callonstart'] and script_id not in self.script_runner.executed_scripts:
+                self.script_runner.execute_script(script_id)
     
     def create_player(self):
         player_texture = self.load_texture("player.png", (50, 50))
@@ -64,15 +110,17 @@ class RPGEngine:
     def load_game_data(self):
         # Загрузка всех предметов
         items_path = os.path.join("game", "items")
-        for item_file in os.listdir(items_path):
-            if item_file.endswith(".yaml"):
-                self.item_loader.load_item(os.path.join(items_path, item_file))
+        if os.path.exists(items_path):
+            for item_file in os.listdir(items_path):
+                if item_file.endswith(".yaml"):
+                    self.item_loader.load_item(os.path.join(items_path, item_file))
         
         # Загрузка и выполнение скриптов
         scripts_path = os.path.join("game", "scripts")
-        for script_file in os.listdir(scripts_path):
-            if script_file.endswith(".yaml"):
-                self.script_runner.run_script(os.path.join(scripts_path, script_file))
+        if os.path.exists(scripts_path):
+            for script_file in os.listdir(scripts_path):
+                if script_file.endswith(".yaml"):
+                    self.script_runner.run_script(os.path.join(scripts_path, script_file))
     
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -92,30 +140,61 @@ class RPGEngine:
             if self.key_cooldowns[key] > 0:
                 self.key_cooldowns[key] -= 1
         
-        # Выбор предметов (1-9) с кд для клавиш
-        for i in range(9):
-            key = i + 1
-            if keys[getattr(pygame, f'K_{key}')] and self.key_cooldowns[key] <= 0:
-                self.toggle_slot(i)
-                self.key_cooldowns[key] = self.key_cooldown_duration
-                break  # Обрабатываем только одно нажатие за кадр
+        # Выбор предметов с кд
+        if any(self.key_cooldowns[key] <= 0 for key in self.key_cooldowns):
+            for i in range(9):
+                key = i + 1
+                if keys[getattr(pygame, f'K_{key}')] and self.key_cooldowns[key] <= 0:
+                    self.toggle_slot(i)
+                    self.key_cooldowns[key] = self.key_cooldown_duration
+                    break
         
-        # Обработка ЛКМ для атаки
+        # Атака ЛКМ
         mouse_buttons = pygame.mouse.get_pressed()
         if mouse_buttons[0] and self.selected_item and self.get_current_cooldown() <= 0 and self.item_state == "idle":
             item_data = self.item_loader.get_item(self.selected_item['id'])
             if item_data and item_data.get('type', {}).get('sword'):
                 self.start_attack()
         
-        # Обновляем кд предметов
+        # Обновляем кд
         self.cache_manager.update_cooldowns()
+        
+        # Обновляем сущности
+        player_pos = [self.player["rect"].centerx, self.player["rect"].centery]
+        self.entity_manager.update(player_pos, self.health_system, self.delta_time)
+        
+        # Обновляем камеру
+        self.camera.update(self.player["rect"].centerx, self.player["rect"].centery)
         
         # Обработка анимации атаки
         if self.item_state == "attacking":
             self.handle_attack_animation()
+        
+        # Проверка наведения на предметы в инвентаре
+        self.check_tooltip()
+    
+    def check_tooltip(self):
+        mouse_pos = pygame.mouse.get_pos()
+        self.show_tooltip = False
+        self.tooltip_item = None
+        
+        # Проверяем, находится ли мышь над инвентарем
+        inventory_bg = pygame.Rect(10, 500, 60 * 9 + 20, 80)
+        if inventory_bg.collidepoint(mouse_pos):
+            # Проверяем конкретные слоты
+            for i in range(9):
+                slot_rect = pygame.Rect(20 + i * 60, 510, 50, 50)
+                if slot_rect.collidepoint(mouse_pos):
+                    item = self.inventory.get_item(i)
+                    if item:
+                        item_data = self.item_loader.get_item(item['id'])
+                        if item_data:
+                            self.show_tooltip = True
+                            self.tooltip_item = item_data
+                            self.tooltip_mouse_pos = mouse_pos
+                            break
     
     def get_current_cooldown(self):
-        """Получает кд для текущего выбранного слота"""
         if self.selected_slot is not None:
             return self.cache_manager.get_slot_cooldown(self.selected_slot)
         return 0
@@ -124,18 +203,15 @@ class RPGEngine:
         item = self.inventory.get_item(slot)
         
         if self.selected_slot == slot:
-            # Снимаем предмет при повторном нажатии
             self.selected_slot = None
             self.selected_item = None
             self.item_state = "idle"
         elif item:
-            # Сохраняем кд предыдущего слота (если был выбран)
             if self.selected_slot is not None:
                 previous_cooldown = self.get_current_cooldown()
                 if previous_cooldown > 0:
                     self.cache_manager.save_slot_cooldown(self.selected_slot, previous_cooldown)
             
-            # Выбираем новый слот и загружаем его кд из кэша
             self.selected_slot = slot
             self.selected_item = item
             self.item_state = "idle"
@@ -144,6 +220,17 @@ class RPGEngine:
         self.item_state = "attacking"
         self.attack_progress = 0
         self.attack_direction = "down"
+        
+        # Проверяем попадание атаки
+        if self.selected_item:
+            item_data = self.item_loader.get_item(self.selected_item['id'])
+            if item_data and item_data.get('type', {}).get('sword'):
+                damage = item_data.get('stats', {}).get('damage', 10)
+                attack_range = 80
+                player_center = [self.player["rect"].centerx, self.player["rect"].centery]
+                
+                # Проверяем попадание по врагам (без вывода в консоль)
+                self.entity_manager.check_attack_hit(player_center, attack_range, damage)
     
     def handle_attack_animation(self):
         if self.attack_direction == "down":
@@ -164,37 +251,44 @@ class RPGEngine:
                 cooldown = item_data.get('type', {}).get('cooldown', 1.0)
                 cooldown_frames = int(cooldown * 60)
                 
-                # Сохраняем кд для текущего слота
                 if self.selected_slot is not None:
                     self.cache_manager.save_slot_cooldown(self.selected_slot, cooldown_frames)
     
     def cleanup(self):
-        """Очистка при выходе из игры"""
         cache_dir = "engine/cache"
         if os.path.exists(cache_dir):
             shutil.rmtree(cache_dir)
-            print("Cache folder cleaned up")
     
     def render(self):
         self.screen.fill((30, 30, 40))
         
-        # Отрисовка игрока
+        camera_offset = self.camera.get_offset()
+        
+        # Отрисовка сущностей с учетом камеры
+        self.entity_manager.render(self.screen, camera_offset)
+        
+        # Отрисовка игрока с учетом камеря
+        player_x = self.player["rect"].x - camera_offset[0]
+        player_y = self.player["rect"].y - camera_offset[1]
+        
         if self.player["texture"]:
-            self.screen.blit(self.player["texture"], self.player["rect"])
+            self.screen.blit(self.player["texture"], (player_x, player_y))
         else:
-            pygame.draw.rect(self.screen, (0, 0, 255), self.player["rect"])
+            pygame.draw.rect(self.screen, (0, 0, 255), (player_x, player_y, 50, 50))
         
-        # Отрисовка выбранного предмета
+        # Отрисовка выбранного предмета с учетом камеры
         if self.selected_item:
-            self.render_selected_item()
+            self.render_selected_item(camera_offset)
         
-        # Отрисовка инвентаря
+        # Отрисовка инвентаря (без смещения камеры)
         self.inventory.render(self.screen, self.item_loader, self.selected_slot)
         
-        # Отображение состояния
-        state_font = pygame.font.Font(None, 20)
-        state_text = state_font.render(f"State: {self.item_state}", True, (255, 255, 255))
-        self.screen.blit(state_text, (10, 480))
+        # Отрисовка UI здоровья (без смещения камеры)
+        self.health_system.render(self.screen)
+        
+        # Отображение имени выбранного предмета
+        if self.selected_item:
+            self.render_selected_item_name()
         
         # Отображение текущего кд
         cooldown = self.get_current_cooldown()
@@ -203,20 +297,88 @@ class RPGEngine:
             cooldown_text = cooldown_font.render(f"Cooldown: {cooldown/60:.1f}s", True, (255, 0, 0))
             self.screen.blit(cooldown_text, (10, 450))
         
+        # Отрисовка тултипа
+        if self.show_tooltip and self.tooltip_item:
+            self.render_tooltip()
+        
         pygame.display.flip()
     
-    def render_selected_item(self):
+    def render_selected_item_name(self):
+        item_data = self.item_loader.get_item(self.selected_item['id'])
+        if item_data:
+            item_name = item_data.get('name', 'Unknown Item')
+            name_font = pygame.font.Font(None, 30)  # В 1.5 раза больше
+            name_text = name_font.render(item_name, True, (255, 255, 255))
+            self.screen.blit(name_text, (10, 480))
+    
+    def render_tooltip(self):
+        item_data = self.tooltip_item
+        if not item_data:
+            return
+        
+        mouse_x, mouse_y = self.tooltip_mouse_pos
+        tooltip_width = 250
+        tooltip_height = 150
+        padding = 10
+        
+        # Позиция тултипа (чтобы не выходил за экран)
+        tooltip_x = mouse_x + 20
+        tooltip_y = mouse_y + 20
+        
+        if tooltip_x + tooltip_width > self.screen.get_width():
+            tooltip_x = mouse_x - tooltip_width - 20
+        if tooltip_y + tooltip_height > self.screen.get_height():
+            tooltip_y = mouse_y - tooltip_height - 20
+        
+        # Фон тултипа
+        tooltip_rect = pygame.Rect(tooltip_x, tooltip_y, tooltip_width, tooltip_height)
+        pygame.draw.rect(self.screen, (40, 40, 50), tooltip_rect)
+        pygame.draw.rect(self.screen, (100, 100, 120), tooltip_rect, 2)
+        
+        # Шрифты
+        title_font = pygame.font.Font(None, 24)
+        desc_font = pygame.font.Font(None, 18)
+        stat_font = pygame.font.Font(None, 18)
+        stat_font.set_bold(True)
+        
+        # Заголовок
+        title = item_data.get('name', 'Unknown Item')
+        title_surface = title_font.render(title, True, (255, 255, 255))
+        self.screen.blit(title_surface, (tooltip_x + padding, tooltip_y + padding))
+        
+        y_offset = padding + 30
+        
+        # Описание
+        desc_lines = item_data.get('desc', [])
+        if isinstance(desc_lines, str):
+            desc_lines = [desc_lines]
+        
+        for line in desc_lines:
+            if line.strip():
+                desc_surface = desc_font.render(line, True, (200, 200, 200))
+                self.screen.blit(desc_surface, (tooltip_x + padding, tooltip_y + y_offset))
+                y_offset += 20
+        
+        # Статы
+        stats = item_data.get('stats', {})
+        if stats:
+            y_offset += 10
+            for stat_name, stat_value in stats.items():
+                stat_text = f"{stat_name}: {stat_value}"
+                stat_surface = stat_font.render(stat_text, True, (255, 215, 0))
+                self.screen.blit(stat_surface, (tooltip_x + padding, tooltip_y + y_offset))
+                y_offset += 20
+    
+    def render_selected_item(self, camera_offset):
         item_data = self.item_loader.get_item(self.selected_item['id'])
         if not item_data:
             return
         
-        # Получаем размер для мира
         texture_config = item_data.get('texture', {})
         world_size = texture_config.get('world_size', [50, 50])
         if not isinstance(world_size, list) or len(world_size) != 2:
             world_size = [50, 50]
         
-        # Загрузка текстуры предмета с правильным размером
         texture_name = texture_config.get('texture')
         if texture_name:
             texture_path = os.path.join("game", "textures", texture_name)
@@ -224,8 +386,11 @@ class RPGEngine:
                 item_texture = pygame.image.load(texture_path).convert_alpha()
                 item_texture = pygame.transform.scale(item_texture, (world_size[0], world_size[1]))
                 
-                # Позиция предмета относительно игрока
-                player_center = self.player["rect"].center
+                player_center = [
+                    self.player["rect"].centerx - camera_offset[0],
+                    self.player["rect"].centery - camera_offset[1]
+                ]
+                
                 offset_x, offset_y = self.calculate_item_position(item_data)
                 
                 item_pos = (player_center[0] - world_size[0]//2 + offset_x, 
@@ -234,10 +399,9 @@ class RPGEngine:
                 self.screen.blit(item_texture, item_pos)
     
     def calculate_item_position(self, item_data):
-        offset_x, offset_y = 40, 0  # Предмет справа от игрока
+        offset_x, offset_y = 40, 0
         
         if self.item_state == "attacking":
-            # Анимация атаки: вниз-вверх
             if self.attack_direction == "down":
                 offset_y = int(60 * self.attack_progress)
             else:
@@ -248,11 +412,13 @@ class RPGEngine:
     def run(self):
         try:
             while self.running:
+                self.delta_time = self.clock.tick(60) / 1000.0
+                
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
                     elif event.type == pygame.MOUSEBUTTONDOWN:
-                        if event.button == 1:  # ЛКМ
+                        if event.button == 1:
                             if self.selected_item and self.get_current_cooldown() <= 0 and self.item_state == "idle":
                                 item_data = self.item_loader.get_item(self.selected_item['id'])
                                 if item_data and item_data.get('type', {}).get('sword'):
@@ -260,9 +426,7 @@ class RPGEngine:
                 
                 self.handle_input()
                 self.render()
-                self.clock.tick(60)
         
         finally:
-            # Всегда выполняем очистку при выходе
             self.cleanup()
             pygame.quit()

@@ -1,0 +1,22 @@
+game:
+  title: "TimeEngine v4"
+  version: "4.0"
+  
+default_values:
+  health: 100
+  max_health: 100
+  
+player:
+  start_position:
+    x: 400
+    y: 300
+  speed: 5
+  
+inventory:
+  slots: 9
+  
+ui:
+  health_bar_width: 200
+  health_bar_height: 20
+  health_bar_color: [255, 0, 0]
+  health_bar_border: [100, 100, 120]

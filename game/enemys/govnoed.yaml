@@ -1,0 +1,20 @@
+name: "Govnoedik"
+id: 0
+texture:
+  animate:
+    on: false
+    frames: 0
+    fps: 0
+  texture: enemytest.png
+  world_size: [64, 128]
+stats:
+  damage: 5
+  health: 150
+  max_health: 150
+  attack_cooldown: 1.5
+  attack_range: 70
+  respawn_time: 5
+behavior:
+  aggro_range: 200
+  move_speed: 2
+  attack_type: melee
