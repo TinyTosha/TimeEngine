@@ -36,7 +36,7 @@ class Inventory:
             
             # Фон слота (выделение выбранного)
             if i == selected_slot:
-                pygame.draw.rect(screen, (100, 100, 200), slot_rect)  # Синий для выбранного
+                pygame.draw.rect(screen, (100, 100, 200), slot_rect)
             else:
                 pygame.draw.rect(screen, (80, 80, 90), slot_rect)
             
@@ -46,7 +46,7 @@ class Inventory:
             slot_text = self.font.render(str(i+1), True, (200, 200, 200))
             screen.blit(slot_text, (slot_rect.x + 5, slot_rect.y + 5))
             
-            # Предмет
+            # Предмет (только текстура, без имени)
             if item:
                 item_data = item_loader.get_item(item['id'])
                 if item_data:
@@ -62,18 +62,15 @@ class Inventory:
         texture_name = texture_config.get('texture')
         
         if texture_name:
-            # Кэширование текстур для инвентаря
             if texture_name not in self.inventory_textures:
                 texture_path = os.path.join("game", "textures", texture_name)
                 if os.path.exists(texture_path):
                     texture = pygame.image.load(texture_path).convert_alpha()
                     
-                    # Получаем размер для инвентаря
                     inventory_size = texture_config.get('inventory_size', [self.slot_size - 20, self.slot_size - 20])
                     if isinstance(inventory_size, list) and len(inventory_size) == 2:
                         texture = pygame.transform.scale(texture, (inventory_size[0], inventory_size[1]))
                     else:
-                        # Размер по умолчанию
                         texture = pygame.transform.scale(texture, (self.slot_size - 20, self.slot_size - 20))
                     
                     self.inventory_textures[texture_name] = texture
@@ -82,22 +79,12 @@ class Inventory:
                 texture = self.inventory_textures[texture_name]
                 texture_rect = texture.get_rect(center=slot_rect.center)
                 screen.blit(texture, texture_rect)
-        
-        # Название предмета (сокращенное)
-        name = item_data.get('name', 'Unknown')
-        if len(name) > 8:
-            name = name[:8] + "..."
-        
-        name_text = self.font.render(name, True, (255, 255, 255))
-        screen.blit(name_text, (slot_rect.x + 5, slot_rect.y + self.slot_size - 25))
     
     def render_cooldown(self, screen, slot_rect, cooldown):
-        # Полупрозрачный черный overlay
         overlay = pygame.Surface((slot_rect.width, slot_rect.height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
         screen.blit(overlay, slot_rect)
         
-        # Отображение времени кд
         seconds = cooldown / 60
         cooldown_text = self.cooldown_font.render(f"{seconds:.1f}", True, (255, 0, 0))
         text_rect = cooldown_text.get_rect(center=slot_rect.center)

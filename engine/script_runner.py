@@ -3,11 +3,12 @@ import re
 import time
 
 class ScriptRunner:
-    def __init__(self, inventory, item_loader, health_system=None, entity_manager=None):
+    def __init__(self, inventory, item_loader, health_system=None, entity_manager=None, quest_system=None):
         self.inventory = inventory
         self.item_loader = item_loader
         self.health_system = health_system
         self.entity_manager = entity_manager
+        self.quest_system = quest_system
         self.colors = {
             'green': '\033[32m',
             'red': '\033[31m',
@@ -43,7 +44,7 @@ class ScriptRunner:
                     'callonstart': call_on_start
                 }
             
-            # Запускаем если нужно
+            # Запускаем только если callonstart=true
             if call_on_start and script_id is not None:
                 self.execute_script_content(script_content)
                 self.executed_scripts.add(script_id)
@@ -53,6 +54,7 @@ class ScriptRunner:
                 print(f"{self.colors['red']}Error loading script {file_path}: {e}{self.colors['reset']}")
     
     def execute_script(self, script_id):
+        """Запускает скрипт по ID"""
         if script_id in self.scripts:
             script = self.scripts[script_id]
             self.execute_script_content(script['content'])
@@ -61,6 +63,7 @@ class ScriptRunner:
         return False
     
     def recall_script(self, script_id):
+        """Перезапускает скрипт по ID"""
         if script_id in self.scripts:
             script = self.scripts[script_id]
             self.execute_script_content(script['content'])
@@ -76,7 +79,6 @@ class ScriptRunner:
     
     def execute_command(self, command):
         try:
-            # Упрощенные логи
             if command.startswith('$log.') and '(' in command and ')' in command:
                 self.execute_simple_log(command)
             elif command.startswith('$inventory.GiveItem'):
@@ -89,12 +91,15 @@ class ScriptRunner:
                 self.execute_call_script(command)
             elif command.startswith('$recall.script'):
                 self.execute_recall_script(command)
+            elif command.startswith('$quest.Give'):
+                self.execute_give_quest(command)
+            elif command.startswith('$quest.Cancel'):
+                self.execute_cancel_quest(command)
         except Exception as e:
             if not self.silent_mode:
                 print(f"{self.colors['red']}Error executing command: {command}{self.colors['reset']}")
     
     def execute_simple_log(self, command):
-        # Формат: $log.color('текст')
         match = re.search(r'\$log\.(\w+)\(["\']([^"\']+)["\']\)', command)
         if match:
             color_name = match.group(1).lower()
@@ -102,18 +107,6 @@ class ScriptRunner:
             
             color_code = self.colors.get(color_name, self.colors['reset'])
             print(f"{color_code}{message}{self.colors['reset']}")
-    
-    def execute_enemy_spawn(self, command):
-        match = re.search(r'\$enemy\.spawn\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', command)
-        if match and self.entity_manager:
-            enemy_id = int(match.group(1).strip())
-            x = int(match.group(2).strip())
-            y = int(match.group(3).strip())
-            initialize = match.group(4).strip().lower() == 'true'
-            
-            result = self.entity_manager.spawn_enemy(enemy_id, x, y, initialize)
-            if result and initialize and not self.silent_mode:
-                print(f"{self.colors['green']}✓ Spawned enemy {enemy_id} at ({x}, {y}){self.colors['reset']}")
     
     def execute_call_script(self, command):
         match = re.search(r'\$call\.script\(([^)]+)\)', command)
@@ -130,6 +123,34 @@ class ScriptRunner:
             success = self.recall_script(script_id)
             if success and not self.silent_mode:
                 print(f"{self.colors['cyan']}✓ Recalled script {script_id}{self.colors['reset']}")
+    
+    def execute_give_quest(self, command):
+        match = re.search(r'\$quest\.Give\(([^)]+)\)', command)
+        if match and self.quest_system:
+            quest_id = int(match.group(1).strip())
+            success = self.quest_system.give_quest(quest_id)
+            if success and not self.silent_mode:
+                print(f"{self.colors['green']}✓ Quest {quest_id} given{self.colors['reset']}")
+    
+    def execute_cancel_quest(self, command):
+        match = re.search(r'\$quest\.Cancel\(([^)]+)\)', command)
+        if match and self.quest_system:
+            quest_id = int(match.group(1).strip())
+            success = self.quest_system.cancel_quest(quest_id)
+            if success and not self.silent_mode:
+                print(f"{self.colors['yellow']}✓ Quest {quest_id} canceled{self.colors['reset']}")
+    
+    def execute_enemy_spawn(self, command):
+        match = re.search(r'\$enemy\.spawn\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', command)
+        if match and self.entity_manager:
+            enemy_id = int(match.group(1).strip())
+            x = int(match.group(2).strip())
+            y = int(match.group(3).strip())
+            initialize = match.group(4).strip().lower() == 'true'
+            
+            result = self.entity_manager.spawn_enemy(enemy_id, x, y, initialize)
+            if result and initialize and not self.silent_mode:
+                print(f"{self.colors['green']}✓ Spawned enemy {enemy_id} at ({x}, {y}){self.colors['reset']}")
     
     def execute_give_item(self, command):
         match = re.search(r'\$inventory\.GiveItem\(([^,]+),\s*([^)]+)\)', command)

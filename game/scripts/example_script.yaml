@@ -6,13 +6,17 @@ script:
 
   - "$function.nullstroke"
 
-  - "$log.green('Give example item...')"
+  - "log.green('Give example item...')"
   - "$inventory.GiveItem(1, 0)"
   
   # Spawn
 
   - "$function.nullstroke"
   
-  - "$log.green('Spawn example entity...')"
+  - "log.green('Spawn example entity...')"
   - "$enemy.spawn(0, 300, 200, true)"
   - "$enemy.spawn(0, 300, 500, true)"
+
+  - "$function.nullstroke"
+
+  - "$quest.Give(0)"

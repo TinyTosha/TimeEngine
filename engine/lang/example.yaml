@@ -1,0 +1,12 @@
+# Not working
+
+quest_kill: "Kill"
+quest_progress: "Progress"
+active_quests: "Active Quests"
+cooldown: "Cooldown"
+health: "Health"
+max_health: "Max Health"
+quest_complete: "Complete"
+quest_cancel: "Cancel"
+quest_reward: "Reward"
+quest_task: "Task"

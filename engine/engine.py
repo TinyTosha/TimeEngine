@@ -10,6 +10,7 @@ from .script_runner import ScriptRunner
 from .cache_manager import CacheManager
 from .entity_manager import EntityManager
 from .health_system import HealthSystem
+from .quest_system import QuestSystem
 
 class Camera:
     def __init__(self, screen_width, screen_height):
@@ -22,7 +23,6 @@ class Camera:
         self.smoothness = 0.1
     
     def update(self, target_x, target_y):
-        # Плавное слежение за целью
         self.target_x = target_x - self.screen_width // 2
         self.target_y = target_y - self.screen_height // 2
         
@@ -31,9 +31,57 @@ class Camera:
     
     def get_offset(self):
         return (int(self.offset_x), int(self.offset_y))
+
+class Localization:
+    def __init__(self, lang_code="en"):
+        self.lang_code = lang_code
+        self.translations = {}
+        self.load_config()
+        self.load_localization()
     
-    def apply_offset(self, x, y):
-        return (x - self.offset_x, y - self.offset_y)
+    def load_config(self):
+        config_path = os.path.join("game", "config", "game_config.yaml")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as file:
+                    config = yaml.safe_load(file)
+                    if config and 'language' in config:
+                        self.lang_code = config['language']
+            except Exception as e:
+                print(f"Error loading config: {e}")
+    
+    def load_localization(self):
+        lang_path = os.path.join("engine", "lang", f"{self.lang_code}.yaml")
+        if os.path.exists(lang_path):
+            try:
+                with open(lang_path, 'r', encoding='utf-8') as file:
+                    self.translations = yaml.safe_load(file) or {}
+            except Exception as e:
+                print(f"Error loading localization: {e}")
+                self.translations = {}
+        else:
+            print(f"Localization file not found: {lang_path}")
+        
+        # Запасные переводы
+        defaults = {
+            'quest_kill': "Kill",
+            'quest_progress': "Progress",
+            'active_quests': "Active Quests",
+            'cooldown': "Cooldown",
+            'health': "Health",
+            'max_health': "Max Health",
+            'quest_complete': "Complete",
+            'quest_cancel': "Cancel",
+            'quest_reward': "Reward",
+            'quest_task': "Task"
+        }
+        
+        for key, value in defaults.items():
+            if key not in self.translations:
+                self.translations[key] = value
+    
+    def get(self, key, default=None):
+        return self.translations.get(key, default or key)
 
 class RPGEngine:
     def __init__(self, screen_width=800, screen_height=600):
@@ -44,6 +92,9 @@ class RPGEngine:
         self.clock = pygame.time.Clock()
         self.running = True
         self.delta_time = 0
+        
+        # Локализация
+        self.localization = Localization()
         
         # Камера
         self.camera = Camera(screen_width, screen_height)
@@ -59,9 +110,13 @@ class RPGEngine:
         self.inventory = Inventory(self.cache_manager)
         self.script_runner = ScriptRunner(self.inventory, self.item_loader, self.health_system)
         
-        # Менеджер сущностей (передаем script_runner)
+        # Менеджер сущностей
         self.entity_manager = EntityManager(self.script_runner)
         self.script_runner.entity_manager = self.entity_manager
+        
+        # Система квестов
+        self.quest_system = QuestSystem(self.entity_manager, self.inventory, self.health_system, self.item_loader, self.localization, self.script_runner)
+        self.script_runner.quest_system = self.quest_system
         
         # Игрок
         self.player = self.create_player()
@@ -79,6 +134,10 @@ class RPGEngine:
         self.tooltip_item = None
         self.tooltip_mouse_pos = (0, 0)
         
+        # Квест UI
+        self.show_quest_details = False
+        self.selected_quest_id = None
+        
         # Кд для клавиш
         self.key_cooldowns = {i: 0 for i in range(1, 10)}
         self.key_cooldown_duration = 10
@@ -87,7 +146,7 @@ class RPGEngine:
         self.load_game_data()
         self.cache_manager.load_slot_cooldowns()
         
-        # Запускаем скрипты с callonstart=true
+        # Запускаем только скрипты с callonstart=true
         for script_id, script_data in self.script_runner.scripts.items():
             if script_data['callonstart'] and script_id not in self.script_runner.executed_scripts:
                 self.script_runner.execute_script(script_id)
@@ -121,6 +180,53 @@ class RPGEngine:
             for script_file in os.listdir(scripts_path):
                 if script_file.endswith(".yaml"):
                     self.script_runner.run_script(os.path.join(scripts_path, script_file))
+    
+    def format_stat_name(self, stat_name):
+        """Форматирует название статы: damage -> Damage, magic_power -> Magic Power"""
+        # Специальные случаи
+        special_cases = {
+            'damage': 'Damage'
+        }
+        
+        # Проверяем специальные случаи
+        if stat_name in special_cases:
+            return special_cases[stat_name]
+        
+        # Заменяем подчеркивания на пробелы
+        words = stat_name.split('_')
+        formatted_words = []
+        
+        for word in words:
+            if word:
+                # Пропускаем сокращения типа "mp", "hp" и т.д.
+                if len(word) <= 2 and word.isalpha():
+                    formatted_word = word.upper()
+                else:
+                    # Делаем первую букву заглавной, остальные строчными
+                    formatted_word = word[0].upper() + word[1:].lower()
+                formatted_words.append(formatted_word)
+        
+        return ' '.join(formatted_words)
+    
+    def get_item_damage(self, item_data):
+        """Получает урон предмета из разных возможных мест"""
+        # Пробуем получить урон из stats.damage
+        damage = item_data.get('stats', {}).get('damage')
+        if damage is not None:
+            return damage
+        
+        # Пробуем получить урон из type.damage
+        damage = item_data.get('type', {}).get('damage')
+        if damage is not None:
+            return damage
+        
+        # Пробуем получить урон из корня предмета
+        damage = item_data.get('damage')
+        if damage is not None:
+            return damage
+        
+        # Урон по умолчанию
+        return 10
     
     def handle_input(self):
         keys = pygame.key.get_pressed()
@@ -163,6 +269,9 @@ class RPGEngine:
         player_pos = [self.player["rect"].centerx, self.player["rect"].centery]
         self.entity_manager.update(player_pos, self.health_system, self.delta_time)
         
+        # Обновляем квесты
+        self.quest_system.update_quests()
+        
         # Обновляем камеру
         self.camera.update(self.player["rect"].centerx, self.player["rect"].centery)
         
@@ -172,6 +281,28 @@ class RPGEngine:
         
         # Проверка наведения на предметы в инвентаре
         self.check_tooltip()
+        
+        # Проверка кликов по квестам
+        self.check_quest_clicks()
+    
+    def check_quest_clicks(self):
+        mouse_pos = pygame.mouse.get_pos()
+        mouse_click = pygame.mouse.get_pressed()
+        
+        if mouse_click[0]:  # ЛКМ
+            # Проверяем клик по логу квестов
+            quest_log_rect = pygame.Rect(600, 20, 180, 150)
+            if quest_log_rect.collidepoint(mouse_pos):
+                self.show_quest_details = True
+                
+                # Определяем какой квест выбран
+                y_offset = 40
+                for quest_id in self.quest_system.active_quests.keys():
+                    quest_rect = pygame.Rect(600, 20 + y_offset, 180, 40)
+                    if quest_rect.collidepoint(mouse_pos):
+                        self.selected_quest_id = quest_id
+                        break
+                    y_offset += 60
     
     def check_tooltip(self):
         mouse_pos = pygame.mouse.get_pos()
@@ -225,12 +356,17 @@ class RPGEngine:
         if self.selected_item:
             item_data = self.item_loader.get_item(self.selected_item['id'])
             if item_data and item_data.get('type', {}).get('sword'):
-                damage = item_data.get('stats', {}).get('damage', 10)
+                # ПРАВИЛЬНОЕ ПОЛУЧЕНИЕ УРОНА
+                damage = self.get_item_damage(item_data)
                 attack_range = 80
                 player_center = [self.player["rect"].centerx, self.player["rect"].centery]
                 
-                # Проверяем попадание по врагам (без вывода в консоль)
-                self.entity_manager.check_attack_hit(player_center, attack_range, damage)
+                # Проверяем попадание по врагам
+                hits = self.entity_manager.check_attack_hit(player_center, attack_range, damage)
+                if hits:
+                    # Обновляем квесты при убийстве врагов
+                    for enemy in hits:
+                        self.quest_system.register_kill(enemy.id)
     
     def handle_attack_animation(self):
         if self.attack_direction == "down":
@@ -267,7 +403,7 @@ class RPGEngine:
         # Отрисовка сущностей с учетом камеры
         self.entity_manager.render(self.screen, camera_offset)
         
-        # Отрисовка игрока с учетом камеря
+        # Отрисовка игрока с учетом камеры
         player_x = self.player["rect"].x - camera_offset[0]
         player_y = self.player["rect"].y - camera_offset[1]
         
@@ -280,10 +416,10 @@ class RPGEngine:
         if self.selected_item:
             self.render_selected_item(camera_offset)
         
-        # Отрисовка инвентаря (без смещения камеры)
+        # Отрисовка инвентаря
         self.inventory.render(self.screen, self.item_loader, self.selected_slot)
         
-        # Отрисовка UI здоровья (без смещения камеры)
+        # Отрисовка UI здоровья
         self.health_system.render(self.screen)
         
         # Отображение имени выбранного предмета
@@ -294,12 +430,19 @@ class RPGEngine:
         cooldown = self.get_current_cooldown()
         if cooldown > 0:
             cooldown_font = pygame.font.Font(None, 24)
-            cooldown_text = cooldown_font.render(f"Cooldown: {cooldown/60:.1f}s", True, (255, 0, 0))
+            cooldown_text = cooldown_font.render(f"{self.localization.get('cooldown')}: {cooldown/60:.1f}s", True, (255, 0, 0))
             self.screen.blit(cooldown_text, (10, 450))
         
         # Отрисовка тултипа
         if self.show_tooltip and self.tooltip_item:
             self.render_tooltip()
+        
+        # Отрисовка лога квестов
+        self.quest_system.render_quest_log(self.screen)
+        
+        # Отрисовка деталей квеста если выбрано
+        if self.show_quest_details and self.selected_quest_id:
+            self.render_quest_details()
         
         pygame.display.flip()
     
@@ -307,9 +450,112 @@ class RPGEngine:
         item_data = self.item_loader.get_item(self.selected_item['id'])
         if item_data:
             item_name = item_data.get('name', 'Unknown Item')
-            name_font = pygame.font.Font(None, 30)  # В 1.5 раза больше
+            name_font = pygame.font.Font(None, 30)
             name_text = name_font.render(item_name, True, (255, 255, 255))
             self.screen.blit(name_text, (10, 480))
+    
+    def render_quest_details(self):
+        quest = self.quest_system.quests.get(self.selected_quest_id)
+        if not quest:
+            return
+        
+        # Позиция и размер деталей квеста
+        details_x = 200
+        details_y = 100
+        details_width = 400
+        details_height = 300
+        
+        # Фон
+        details_rect = pygame.Rect(details_x, details_y, details_width, details_height)
+        pygame.draw.rect(self.screen, (40, 40, 50), details_rect)
+        pygame.draw.rect(self.screen, (100, 100, 120), details_rect, 2)
+        
+        # Шрифты
+        title_font = pygame.font.Font(None, 28)
+        desc_font = pygame.font.Font(None, 20)
+        section_font = pygame.font.Font(None, 22)
+        section_font.set_bold(True)
+        
+        padding = 20
+        y_offset = padding
+        
+        # Заголовок
+        title = quest.get('name', 'Unknown Quest')
+        title_surface = title_font.render(title, True, (255, 215, 0))
+        self.screen.blit(title_surface, (details_x + padding, details_y + y_offset))
+        y_offset += 40
+        
+        # Описание
+        desc_lines = quest.get('desc', [])
+        if isinstance(desc_lines, str):
+            desc_lines = [desc_lines]
+        
+        for line in desc_lines:
+            desc_surface = desc_font.render(line, True, (200, 200, 200))
+            self.screen.blit(desc_surface, (details_x + padding, details_y + y_offset))
+            y_offset += 25
+        
+        y_offset += 10
+        
+        # Задачи
+        task_surface = section_font.render(f"{self.localization.get('quest_task')}:", True, (255, 255, 255))
+        self.screen.blit(task_surface, (details_x + padding, details_y + y_offset))
+        y_offset += 30
+        
+        tasks = quest.get('quest_task', [])
+        for task in tasks:
+            if task.startswith('!quest_kill('):
+                match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
+                if match:
+                    enemy_id = int(match.group(1))
+                    required_count = int(match.group(2))
+                    
+                    enemy_name = f"Enemy {enemy_id}"
+                    enemy_template = self.entity_manager.enemy_templates.get(enemy_id)
+                    if enemy_template:
+                        enemy_name = enemy_template.get('name', f"Enemy {enemy_id}")
+                    
+                    progress = self.quest_system.active_quests.get(self.selected_quest_id, {}).get('progress', 0)
+                    task_text = f"{self.localization.get('quest_kill')} {enemy_name} ({progress}/{required_count})"
+                    task_surface = desc_font.render(task_text, True, (200, 200, 200))
+                    self.screen.blit(task_surface, (details_x + padding, details_y + y_offset))
+                    y_offset += 25
+        
+        y_offset += 10
+        
+        # Награды
+        reward_surface = section_font.render(f"{self.localization.get('quest_reward')}:", True, (255, 255, 255))
+        self.screen.blit(reward_surface, (details_x + padding, details_y + y_offset))
+        y_offset += 30
+        
+        rewards = quest.get('quest_reward', [])
+        for reward in rewards:
+            if reward.startswith('!quest_reward_addmaxhealth('):
+                match = re.search(r'!quest_reward_addmaxhealth\((\d+)\)', reward)
+                if match:
+                    amount = int(match.group(1))
+                    reward_text = f"+{amount} {self.localization.get('max_health')}"
+                    reward_surface = desc_font.render(reward_text, True, (0, 255, 0))
+                    self.screen.blit(reward_surface, (details_x + padding, details_y + y_offset))
+                    y_offset += 25
+            
+            elif reward.startswith('!quest_reward_giveitem('):
+                match = re.search(r'!quest_reward_giveitem\((\d+)\)', reward)
+                if match:
+                    item_id = int(match.group(1))
+                    item_data = self.item_loader.get_item(item_id)
+                    item_name = item_data.get('name', f"Item {item_id}") if item_data else f"Item {item_id}"
+                    reward_text = f"Get {item_name}"
+                    reward_surface = desc_font.render(reward_text, True, (0, 255, 0))
+                    self.screen.blit(reward_surface, (details_x + padding, details_y + y_offset))
+                    y_offset += 25
+        
+        # Кнопка закрытия
+        close_rect = pygame.Rect(details_x + details_width - 40, details_y + 10, 30, 30)
+        pygame.draw.rect(self.screen, (255, 0, 0), close_rect)
+        close_font = pygame.font.Font(None, 24)
+        close_text = close_font.render("X", True, (255, 255, 255))
+        self.screen.blit(close_text, (close_rect.x + 10, close_rect.y + 5))
     
     def render_tooltip(self):
         item_data = self.tooltip_item
@@ -317,11 +563,51 @@ class RPGEngine:
             return
         
         mouse_x, mouse_y = self.tooltip_mouse_pos
-        tooltip_width = 250
-        tooltip_height = 150
-        padding = 10
         
-        # Позиция тултипа (чтобы не выходил за экран)
+        # Шрифты
+        title_font = pygame.font.Font(None, 24)
+        desc_font = pygame.font.Font(None, 18)
+        stat_font = pygame.font.Font(None, 18)
+        stat_font.set_bold(True)
+        
+        # Рассчитываем размер тултипа
+        padding = 10
+        max_width = 250
+        line_height = 20
+        
+        # Заголовок
+        title = item_data.get('name', 'Unknown Item')
+        title_width = title_font.size(title)[0]
+        
+        # Описание
+        desc_lines = item_data.get('desc', [])
+        if isinstance(desc_lines, str):
+            desc_lines = [desc_lines]
+        
+        desc_width = 0
+        for line in desc_lines:
+            if line.strip():
+                line_width = desc_font.size(line)[0]
+                desc_width = max(desc_width, line_width)
+        
+        # Статы - форматируем названия
+        stats = item_data.get('stats', {})
+        stat_width = 0
+        formatted_stats = {}
+        
+        for stat_name, stat_value in stats.items():
+            # Форматируем название статы
+            formatted_name = self.format_stat_name(stat_name)
+            formatted_stats[formatted_name] = stat_value
+            stat_text = f"{formatted_name}: {stat_value}"
+            line_width = stat_font.size(stat_text)[0]
+            stat_width = max(stat_width, line_width)
+        
+        # Итоговый размер
+        tooltip_width = min(max(title_width, desc_width, stat_width) + padding * 2, max_width)
+        tooltip_height = padding * 2 + 30 + len(desc_lines) * line_height + len(formatted_stats) * line_height
+        
+        # Позиция тултипа
         tooltip_x = mouse_x + 20
         tooltip_y = mouse_y + 20
         
@@ -335,39 +621,46 @@ class RPGEngine:
         pygame.draw.rect(self.screen, (40, 40, 50), tooltip_rect)
         pygame.draw.rect(self.screen, (100, 100, 120), tooltip_rect, 2)
         
-        # Шрифты
-        title_font = pygame.font.Font(None, 24)
-        desc_font = pygame.font.Font(None, 18)
-        stat_font = pygame.font.Font(None, 18)
-        stat_font.set_bold(True)
-        
         # Заголовок
-        title = item_data.get('name', 'Unknown Item')
         title_surface = title_font.render(title, True, (255, 255, 255))
         self.screen.blit(title_surface, (tooltip_x + padding, tooltip_y + padding))
         
         y_offset = padding + 30
         
         # Описание
-        desc_lines = item_data.get('desc', [])
-        if isinstance(desc_lines, str):
-            desc_lines = [desc_lines]
-        
         for line in desc_lines:
             if line.strip():
-                desc_surface = desc_font.render(line, True, (200, 200, 200))
-                self.screen.blit(desc_surface, (tooltip_x + padding, tooltip_y + y_offset))
-                y_offset += 20
+                # Перенос строки если нужно
+                if desc_font.size(line)[0] > tooltip_width - padding * 2:
+                    words = line.split()
+                    current_line = ""
+                    for word in words:
+                        test_line = current_line + word + " "
+                        if desc_font.size(test_line)[0] < tooltip_width - padding * 2:
+                            current_line = test_line
+                        else:
+                            if current_line:
+                                desc_surface = desc_font.render(current_line, True, (200, 200, 200))
+                                self.screen.blit(desc_surface, (tooltip_x + padding, tooltip_y + y_offset))
+                                y_offset += line_height
+                            current_line = word + " "
+                    if current_line:
+                        desc_surface = desc_font.render(current_line, True, (200, 200, 200))
+                        self.screen.blit(desc_surface, (tooltip_x + padding, tooltip_y + y_offset))
+                        y_offset += line_height
+                else:
+                    desc_surface = desc_font.render(line, True, (200, 200, 200))
+                    self.screen.blit(desc_surface, (tooltip_x + padding, tooltip_y + y_offset))
+                    y_offset += line_height
         
-        # Статы
-        stats = item_data.get('stats', {})
-        if stats:
-            y_offset += 10
-            for stat_name, stat_value in stats.items():
+        # Статы (без звездочек, с форматированными названиями)
+        if formatted_stats:
+            y_offset += 5
+            for stat_name, stat_value in formatted_stats.items():
                 stat_text = f"{stat_name}: {stat_value}"
                 stat_surface = stat_font.render(stat_text, True, (255, 215, 0))
                 self.screen.blit(stat_surface, (tooltip_x + padding, tooltip_y + y_offset))
-                y_offset += 20
+                y_offset += line_height
     
     def render_selected_item(self, camera_offset):
         item_data = self.item_loader.get_item(self.selected_item['id'])
@@ -419,6 +712,14 @@ class RPGEngine:
                         self.running = False
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         if event.button == 1:
+                            # Проверяем клик по кнопке закрытия квеста
+                            if self.show_quest_details and self.selected_quest_id:
+                                close_rect = pygame.Rect(200 + 400 - 40, 100 + 10, 30, 30)
+                                if close_rect.collidepoint(event.pos):
+                                    self.show_quest_details = False
+                                    self.selected_quest_id = None
+                                    continue
+                            
                             if self.selected_item and self.get_current_cooldown() <= 0 and self.item_state == "idle":
                                 item_data = self.item_loader.get_item(self.selected_item['id'])
                                 if item_data and item_data.get('type', {}).get('sword'):

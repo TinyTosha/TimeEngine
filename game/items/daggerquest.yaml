@@ -1,5 +1,5 @@
-name: "Ruby Dagger"
-id: 1
+name: "Quest Dagger"
+id: 2
 texture:
   animate:
     on: false
@@ -7,11 +7,11 @@ texture:
     fps: 0
   texture: bladetest.png
   inventory_size: [22,22]
-  world_size: [64,64]
+  world_size: [128,128]
 stats:
-  damage: 25
+  damage: 150
 desc:
-  - "Starter dagger"
+  - "Dagger from quest"
   - "$function.nullstroke"
   - "(from example)"
 type:
