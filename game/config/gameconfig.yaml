@@ -1,0 +1,29 @@
+game:
+  title: "RPG Engine Demo"
+  version: "1.0"
+  author: "Game Developer"
+  
+player:
+  start_position:
+    x: 400
+    y: 300
+  speed: 5
+  health: 100
+  mana: 50
+  
+inventory:
+  slots: 10
+  default_items:
+    - slot: 0
+      item: Dragon Slayer патапим
+      id: 1
+  
+world:
+  background_color: [30, 30, 40]
+  grid_size: 32
+  show_grid: true
+  
+debug:
+  show_fps: true
+  log_level: "info"
+  show_collisions: false

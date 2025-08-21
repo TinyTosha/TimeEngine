@@ -1,0 +1,22 @@
+name: "Dragon Slayer патапим"
+id: 1
+texture:
+  animate:
+    on: false
+    frames: 0
+    fps: 0
+  texture: bladetest.png
+stats:
+  damage: 25
+  strength: 5
+desc:
+  - "Ancient blade that can pierce dragon scales."
+  - "Damage: $stats.damage"
+  - "Sila patapima $stats.strength"
+  - "$function.nullstroke"
+  - "$color.yellow LEGENDARY SWORD"
+type:
+  sword: true
+  damage: $stats.damage
+  cooldown: 1.2
+rarity: legendary
