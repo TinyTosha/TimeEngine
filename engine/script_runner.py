@@ -3,12 +3,14 @@ import re
 import time
 
 class ScriptRunner:
-    def __init__(self, inventory, item_loader, health_system=None, entity_manager=None, quest_system=None):
+    def __init__(self, inventory, item_loader, health_system=None):
         self.inventory = inventory
         self.item_loader = item_loader
         self.health_system = health_system
-        self.entity_manager = entity_manager
-        self.quest_system = quest_system
+        self.entity_manager = None
+        self.quest_system = None
+        self.npc_system = None
+        self.map_system = None
         self.colors = {
             'green': '\033[32m',
             'red': '\033[31m',
@@ -99,13 +101,24 @@ class ScriptRunner:
                 self.execute_cancel_quest(command)
             elif command.startswith('$npc.dialog'):
                 self.execute_npc_dialog(command)
+            elif command.startswith('$map.set'):
+                self.execute_set_map(command)
         except Exception as e:
             if not self.silent_mode:
                 print(f"{self.colors['red']}Error executing command: {command}{self.colors['reset']}")
+                print(f"Error details: {e}")
+    
+    def execute_set_map(self, command):
+        match = re.search(r'\$map\.set\(([^)]+)\)', command)
+        if match and hasattr(self, 'map_system') and self.map_system:
+            map_id = int(match.group(1).strip())
+            success = self.map_system.set_map(map_id)
+            if success and not self.silent_mode:
+                print(f"{self.colors['green']}✓ Map {map_id} loaded{self.colors['reset']}")
     
     def execute_npc_spawn(self, command):
         match = re.search(r'\$npc\.spawn\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', command)
-        if match and hasattr(self, 'npc_system'):
+        if match and hasattr(self, 'npc_system') and self.npc_system:
             npc_id = int(match.group(1).strip())
             x = int(match.group(2).strip())
             y = int(match.group(3).strip())
@@ -117,7 +130,7 @@ class ScriptRunner:
 
     def execute_npc_dialog(self, command):
         match = re.search(r'\$npc\.dialog\(([^)]+)\)', command)
-        if match and hasattr(self, 'npc_system'):
+        if match and hasattr(self, 'npc_system') and self.npc_system:
             npc_id = int(match.group(1).strip())
             success = self.npc_system.start_dialog(npc_id)
             if success and not self.silent_mode:
@@ -150,7 +163,7 @@ class ScriptRunner:
     
     def execute_give_quest(self, command):
         match = re.search(r'\$quest\.Give\(([^)]+)\)', command)
-        if match and self.quest_system:
+        if match and hasattr(self, 'quest_system') and self.quest_system:
             quest_id = int(match.group(1).strip())
             success = self.quest_system.give_quest(quest_id)
             if success and not self.silent_mode:
@@ -158,7 +171,7 @@ class ScriptRunner:
     
     def execute_cancel_quest(self, command):
         match = re.search(r'\$quest\.Cancel\(([^)]+)\)', command)
-        if match and self.quest_system:
+        if match and hasattr(self, 'quest_system') and self.quest_system:
             quest_id = int(match.group(1).strip())
             success = self.quest_system.cancel_quest(quest_id)
             if success and not self.silent_mode:
@@ -166,7 +179,7 @@ class ScriptRunner:
     
     def execute_enemy_spawn(self, command):
         match = re.search(r'\$enemy\.spawn\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', command)
-        if match and self.entity_manager:
+        if match and hasattr(self, 'entity_manager') and self.entity_manager:
             enemy_id = int(match.group(1).strip())
             x = int(match.group(2).strip())
             y = int(match.group(3).strip())

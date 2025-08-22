@@ -13,6 +13,7 @@ from .entity_manager import EntityManager
 from .health_system import HealthSystem
 from .quest_system import QuestSystem
 from .npc_system import NPCSystem
+from .map_system import MapSystem
 
 class Camera:
     def __init__(self, screen_width, screen_height):
@@ -89,7 +90,7 @@ class RPGEngine:
     def __init__(self, screen_width=800, screen_height=600):
         pygame.init()
         self.screen = pygame.display.set_mode((screen_width, screen_height))
-        pygame.display.set_caption("TimeEngine v7")
+        pygame.display.set_caption("TimeEngine v8")
         
         self.clock = pygame.time.Clock()
         self.running = True
@@ -123,6 +124,10 @@ class RPGEngine:
         # Система NPC
         self.npc_system = NPCSystem(self.script_runner)
         self.script_runner.npc_system = self.npc_system
+        
+        # Система карт
+        self.map_system = MapSystem()
+        self.script_runner.map_system = self.map_system
         
         # Игрок
         self.player = self.create_player()
@@ -191,7 +196,32 @@ class RPGEngine:
         """Форматирует название статы: damage -> Damage, magic_power -> Magic Power"""
         # Специальные случаи
         special_cases = {
-            'damage': 'Damage'
+            'damage': 'Damage',
+            'dmg': 'Damage',
+            'atk': 'Attack',
+            'def': 'Defense',
+            'hp': 'HP',
+            'health': 'Health',
+            'mp': 'MP',
+            'mana': 'Mana',
+            'xp': 'XP',
+            'exp': 'Experience',
+            'str': 'Strength',
+            'dex': 'Dexterity',
+            'int': 'Intelligence',
+            'vit': 'Vitality',
+            'agi': 'Agility',
+            'luk': 'Luck',
+            'crit': 'Critical Chance',
+            'crit_dmg': 'Critical Damage',
+            'atk_spd': 'Attack Speed',
+            'move_spd': 'Movement Speed',
+            'cooldown': 'Cooldown',
+            'cd': 'Cooldown',
+            'res': 'Resistance',
+            'elem_res': 'Elemental Resistance',
+            'phys_res': 'Physical Resistance',
+            'mag_res': 'Magic Resistance'
         }
         
         # Проверяем специальные случаи
@@ -237,15 +267,20 @@ class RPGEngine:
     def handle_input(self):
         keys = pygame.key.get_pressed()
         
-        # Движение игрока
+        # Движение игрока с учетом коллизий
+        new_x, new_y = self.player["rect"].x, self.player["rect"].y
+        
         if keys[pygame.K_w]:
-            self.player["rect"].y -= self.player_speed
+            new_y -= self.player_speed
         if keys[pygame.K_s]:
-            self.player["rect"].y += self.player_speed
+            new_y += self.player_speed
         if keys[pygame.K_a]:
-            self.player["rect"].x -= self.player_speed
+            new_x -= self.player_speed
         if keys[pygame.K_d]:
-            self.player["rect"].x += self.player_speed
+            new_x += self.player_speed
+        
+        # Применяем движение с проверкой коллизий
+        self.map_system.update_player_position(self.player["rect"], new_x, new_y)
         
         # Взаимодействие с NPC по нажатию E
         if keys[pygame.K_e] and not self.npc_system.active_npc:
@@ -282,7 +317,7 @@ class RPGEngine:
         # Обновляем квесты
         self.quest_system.update_quests()
         
-        # Обновляем NPC с позицией игрока - ИСПРАВЛЕННАЯ СТРОКА!
+        # Обновляем NPC с позицией игрока
         self.npc_system.update(player_pos)
         
         # Обновляем камеру
@@ -421,13 +456,16 @@ class RPGEngine:
         
         camera_offset = self.camera.get_offset()
         
+        # Отрисовываем карту
+        self.map_system.render(self.screen, camera_offset)
+        
         # Отрисовка сущностей с учетом камеры
         self.entity_manager.render(self.screen, camera_offset)
         
         # Отрисовка NPC с учетом камеры
         self.npc_system.render(self.screen, camera_offset)
         
-        # Отрисовка игрока с учетом камера
+        # Отрисовка игрока с учетом камеры
         player_x = self.player["rect"].x - camera_offset[0]
         player_y = self.player["rect"].y - camera_offset[1]
         

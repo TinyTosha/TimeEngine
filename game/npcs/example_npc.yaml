@@ -5,7 +5,7 @@ world_size: [64, 128]
 interaction_range: 120
 npc:
   dialog:
-    speed: 2
+    speed: 3
     message:
       - |
         Hi can you beat 5 Amogus and 1 Amogus lord

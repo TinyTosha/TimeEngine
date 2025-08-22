@@ -1,0 +1,13 @@
+name: "Map Example"
+id: 0
+
+map:
+  wall:
+    layer: 2
+    collision: true
+    world_size: [64, 64]
+    world_pos: [-100, 600]
+    texture:
+      color: [255, 0, 0]
+      #texture: test.png
+      use_texture: false
