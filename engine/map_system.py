@@ -4,11 +4,12 @@ import yaml
 
 class MapObject:
     def __init__(self, object_data):
-        self.layer = object_data.get('layer', 0)  # 0 - фон, 1+ - объекты
+        self.layer = object_data.get('layer', 0)
         self.collision = object_data.get('collision', False)
         self.world_size = object_data.get('world_size', [64, 64])
         self.world_pos = object_data.get('world_pos', [0, 0])
         self.texture_config = object_data.get('texture', {})
+        self.object_type = object_data.get('type', 'object')
         self.texture = None
         self.rect = pygame.Rect(self.world_pos[0], self.world_pos[1], 
                                self.world_size[0], self.world_size[1])
@@ -48,10 +49,12 @@ class MapObject:
         screen.blit(self.texture, (render_x, render_y))
 
 class MapSystem:
-    def __init__(self):
+    def __init__(self, entity_manager, npc_system):
         self.maps = {}
         self.current_map = None
         self.map_objects = []
+        self.entity_manager = entity_manager
+        self.npc_system = npc_system
         self.load_maps()
     
     def load_maps(self):
@@ -77,11 +80,23 @@ class MapSystem:
             self.current_map = map_data
             self.map_objects = []
             
+            # Очищаем текущих врагов и NPC
+            self.entity_manager.clear_entities()
+            self.npc_system.npcs.clear()
+            
             # Создаем объекты карты
             map_objects = map_data.get('map', {})
             for obj_name, obj_data in map_objects.items():
                 map_object = MapObject(obj_data)
                 self.map_objects.append(map_object)
+                
+                # Если это враг - спавним его
+                if obj_data.get('type') == 'enemy':
+                    self.spawn_enemy_from_map(obj_data)
+                
+                # Если это NPC - спавним его
+                elif obj_data.get('type') == 'npc':
+                    self.spawn_npc_from_map(obj_data)
             
             # Сортируем объекты по слоям
             self.map_objects.sort(key=lambda x: x.layer)
@@ -91,6 +106,32 @@ class MapSystem:
         else:
             print(f"Map with id {map_id} not found!")
             return False
+    
+    def spawn_enemy_from_map(self, enemy_data):
+        """Спавнит врага из данных карты"""
+        if not self.entity_manager:
+            return
+        
+        enemy_id = enemy_data.get('id')
+        x = enemy_data.get('world_pos', [0, 0])[0]
+        y = enemy_data.get('world_pos', [0, 0])[1]
+        
+        if enemy_id is not None:
+            # Спавним врага через entity_manager
+            self.entity_manager.spawn_enemy(enemy_id, x, y, True)
+    
+    def spawn_npc_from_map(self, npc_data):
+        """Спавнит NPC из данных карты"""
+        if not self.npc_system:
+            return
+        
+        npc_id = npc_data.get('id')
+        x = npc_data.get('world_pos', [0, 0])[0]
+        y = npc_data.get('world_pos', [0, 0])[1]
+        
+        if npc_id is not None:
+            # Спавним NPC через npc_system
+            self.npc_system.spawn_npc(npc_id, x, y, True)
     
     def check_collisions(self, player_rect):
         """Проверяет коллизии игрока с объектами карты"""

@@ -1,4 +1,4 @@
-name: "Ruby Dagger"
+name: "Starter Dagger"
 id: 1
 texture:
   animate:
@@ -6,8 +6,8 @@ texture:
     frames: 0
     fps: 0
   texture: bladetest.png
-  inventory_size: [22,22]
-  world_size: [64,64]
+  inventory_size: [30,57]
+  world_size: [64,100]
 stats:
   damage: 25
 desc:

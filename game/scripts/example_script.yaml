@@ -14,9 +14,9 @@ script:
   - "$function.nullstroke"
   
   - "log.green('Spawn example entity...')"
-  - "$enemy.spawn(0, 300, 200, true)"
-  - "$enemy.spawn(0, 300, 500, true)"
-  - "$enemy.spawn(1, 700, 350, true)"
-  - "$npc.spawn(0, -100, 500, true)"
+  ##- "$enemy.spawn(0, 300, 200, true)"
+  ##- "$enemy.spawn(0, 300, 500, true)"
+  ##- "$enemy.spawn(1, 700, 350, true)"
+  ##- "$npc.spawn(0, -100, 500, true)"
 
   - "$map.set(0)"

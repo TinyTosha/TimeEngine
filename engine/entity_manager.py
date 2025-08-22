@@ -18,10 +18,10 @@ class Entity:
         self.spawn_y = spawn_y
         self.position = [spawn_x, spawn_y]
     
-        # Статы - ИСПРАВЛЕНИЕ БАГА С HP!
+        # Статы
         self.attack_cooldown = 0
-        self.max_health = self.stats.get('health', 100)  # Берем health из stats
-        self.health = self.max_health  # Начинаем с полного HP!
+        self.max_health = self.stats.get('health', 100)
+        self.health = self.max_health
         self.show_health_bar = False
         self.alive = True
     
@@ -80,7 +80,7 @@ class Entity:
     def respawn(self):
         self.is_respawning = False
         self.alive = True
-        self.health = self.max_health  # ВОССТАНАВЛИВАЕМ ПОЛНОЕ HP!
+        self.health = self.max_health
         self.position = [self.spawn_x, self.spawn_y]
         self.show_health_bar = False
     
@@ -117,10 +117,10 @@ class Entity:
             self.render_health_bar(screen, camera_offset)
     
     def render_health_bar(self, screen, camera_offset):
-        bar_width = 90  # Увеличили в 1.5 раза (60 * 1.5 = 90)
-        bar_height = 9   # Увеличили в 1.5 раза (6 * 1.5 = 9)
+        bar_width = 90
+        bar_height = 9
         x = self.position[0] - bar_width // 2 - camera_offset[0]
-        y = self.position[1] - 50 - camera_offset[1]  # Подняли выше
+        y = self.position[1] - 50 - camera_offset[1]
         
         # Фон
         pygame.draw.rect(screen, (50, 50, 50), (x, y, bar_width, bar_height))
@@ -173,8 +173,11 @@ class EntityManager:
             self.entities.append(enemy)
             return enemy
         else:
-            # Возвращаем пустышку для скриптов
             return {"id": enemy_id, "x": x, "y": y, "initialized": False}
+    
+    def clear_entities(self):
+        """Очищает всех врагов"""
+        self.entities.clear()
     
     def update(self, player_position, player_health_system, delta_time):
         for entity in self.entities:

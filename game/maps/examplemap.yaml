@@ -11,3 +11,23 @@ map:
       color: [255, 0, 0]
       #texture: test.png
       use_texture: false
+  questgiver:
+    layer: 2
+    type: npc
+    id: 0
+    world_pos: [-100, 500]
+  enemy_1:
+    layer: 2
+    type: enemy
+    id: 0
+    world_pos: [300, 200]
+  enemy_2:
+    layer: 2
+    type: enemy
+    id: 0
+    world_pos: [300, 500]
+  boss_1:
+    layer: 2
+    type: enemy
+    id: 1
+    world_pos: [700, 350]

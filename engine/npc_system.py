@@ -29,8 +29,8 @@ class NPC:
         self.dialog_index = 0
         self.char_index = 0
         self.last_char_time = 0
-        self.base_char_delay = 0.05  # Базовая задержка
-        self.char_delay = self.base_char_delay  # Текущая задержка
+        self.base_char_delay = 0.05
+        self.char_delay = self.base_char_delay
         self.show_buttons = False
         
     def load_texture(self):
@@ -67,16 +67,16 @@ class NPC:
     
     def set_dialog_speed(self, speed_level):
         """Устанавливает скорость диалога из настроек (1-4)"""
-        speed_level = max(1, min(4, speed_level))  # Ограничиваем от 1 до 4
+        speed_level = max(1, min(4, speed_level))
         
         if speed_level == 1:
-            self.char_delay = self.base_char_delay  # Обычная
+            self.char_delay = self.base_char_delay
         elif speed_level == 2:
-            self.char_delay = self.base_char_delay / 2  # 2x
+            self.char_delay = self.base_char_delay / 2
         elif speed_level == 3:
-            self.char_delay = self.base_char_delay / 3.5  # 3.5x
+            self.char_delay = self.base_char_delay / 3.5
         elif speed_level == 4:
-            self.char_delay = 0  # Моментальная
+            self.char_delay = 0
     
     def update_dialog(self):
         """Обновляет анимацию текста диалога"""
@@ -119,10 +119,8 @@ class NPC:
             
             # Если сообщение - список строк (многострочный диалог)
             if isinstance(current_message, list):
-                # Объединяем строки с переносами
                 return "\n".join(current_message)[:self.char_index]
             else:
-                # Обычная строка
                 return current_message[:self.char_index]
         return ""
     
@@ -221,6 +219,11 @@ class NPCSystem:
         else:
             return {"id": npc_id, "x": x, "y": y, "initialized": False}
     
+    def clear_npcs(self):
+        """Очищает всех NPC"""
+        self.npcs.clear()
+        self.active_npc = None
+    
     def update(self, player_position):
         """Обновляет взаимодействие и анимацию диалога"""
         # Проверяем взаимодействие со всеми NPC
@@ -259,7 +262,7 @@ class NPCSystem:
         button_width = 120
         button_spacing = 10
         
-        # Позиционируем кнопки справа от текста (как в рендере)
+        # Позиционируем кнопки справа от текста
         dialog_width = 500
         dialog_height = 180
         dialog_x = 150
@@ -314,7 +317,7 @@ class NPCSystem:
         text_font = pygame.font.Font(None, 20)
         dialog_text = self.active_npc.get_current_text()
         
-        # Разделяем на строки (учитываем \n и многострочные списки)
+        # Разделяем на строки
         lines = []
         if isinstance(dialog_text, str):
             lines = dialog_text.split('\n')
@@ -324,7 +327,7 @@ class NPCSystem:
         text_y = dialog_y + 40
         
         for i, line in enumerate(lines):
-            if line.strip():  # Пропускаем пустые строки
+            if line.strip():
                 text_surface = text_font.render(line, True, (255, 255, 255))
                 screen.blit(text_surface, (text_x, text_y + i * 25))
         

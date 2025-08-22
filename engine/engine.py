@@ -125,8 +125,8 @@ class RPGEngine:
         self.npc_system = NPCSystem(self.script_runner)
         self.script_runner.npc_system = self.npc_system
         
-        # Система карт
-        self.map_system = MapSystem()
+        # Система карт (ИСПРАВЛЕННАЯ СТРОКА!)
+        self.map_system = MapSystem(self.entity_manager, self.npc_system)
         self.script_runner.map_system = self.map_system
         
         # Игрок
@@ -278,6 +278,8 @@ class RPGEngine:
             new_x -= self.player_speed
         if keys[pygame.K_d]:
             new_x += self.player_speed
+
+        self.script_runner.update(self.delta_time)
         
         # Применяем движение с проверкой коллизий
         self.map_system.update_player_position(self.player["rect"], new_x, new_y)

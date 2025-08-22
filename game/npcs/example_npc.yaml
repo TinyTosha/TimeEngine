@@ -1,4 +1,4 @@
-name: "Zombie Quest Giver"
+name: "Quest Giver"
 id: 0
 texture: enemytest.png
 world_size: [64, 128]

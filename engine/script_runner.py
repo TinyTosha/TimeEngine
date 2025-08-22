@@ -1,6 +1,7 @@
 import yaml
 import re
 import time
+import pygame
 
 class ScriptRunner:
     def __init__(self, inventory, item_loader, health_system=None):
@@ -24,6 +25,21 @@ class ScriptRunner:
         self.silent_mode = False
         self.scripts = {}
         self.executed_scripts = set()
+        
+        # Для неблокирующих задержек
+        self.delay_active = False
+        self.delay_end_time = 0
+        self.delay_commands = []
+        self.current_delay_index = 0
+    
+    def update(self, delta_time):
+        """Обновляет состояние скриптов (вызывается каждый кадр)"""
+        if self.delay_active:
+            current_time = time.time()
+            if current_time >= self.delay_end_time:
+                self.delay_active = False
+                # Продолжаем выполнение скрипта после задержки
+                self.continue_script_execution()
     
     def run_script(self, file_path):
         try:
@@ -73,40 +89,79 @@ class ScriptRunner:
         return False
     
     def execute_script_content(self, script_content):
+        """Выполняет содержимое скрипта"""
         lines = script_content.split('\n')
-        for line in lines:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                self.execute_command(line)
+        self.delay_commands = [line.strip() for line in lines if line.strip() and not line.strip().startswith('#')]
+        self.current_delay_index = 0
+        self.execute_next_command()
+    
+    def execute_next_command(self):
+        """Выполняет следующую команду в скрипте"""
+        if self.current_delay_index < len(self.delay_commands):
+            command = self.delay_commands[self.current_delay_index]
+            self.current_delay_index += 1
+            self.execute_command(command)
+    
+    def continue_script_execution(self):
+        """Продолжает выполнение скрипта после задержки"""
+        self.execute_next_command()
     
     def execute_command(self, command):
         try:
             if command.startswith('$log.') and '(' in command and ')' in command:
                 self.execute_simple_log(command)
+                self.execute_next_command()
             elif command.startswith('$inventory.GiveItem'):
                 self.execute_give_item(command)
-            elif command.startswith('$function.'):
-                self.execute_function(command)
+                self.execute_next_command()
             elif command.startswith('$enemy.spawn'):
                 self.execute_enemy_spawn(command)
+                self.execute_next_command()
             elif command.startswith('$npc.spawn'):
                 self.execute_npc_spawn(command)
+                self.execute_next_command()
             elif command.startswith('$call.script'):
                 self.execute_call_script(command)
+                self.execute_next_command()
             elif command.startswith('$recall.script'):
                 self.execute_recall_script(command)
+                self.execute_next_command()
             elif command.startswith('$quest.Give'):
                 self.execute_give_quest(command)
+                self.execute_next_command()
             elif command.startswith('$quest.Cancel'):
                 self.execute_cancel_quest(command)
+                self.execute_next_command()
             elif command.startswith('$npc.dialog'):
                 self.execute_npc_dialog(command)
+                self.execute_next_command()
             elif command.startswith('$map.set'):
                 self.execute_set_map(command)
+                self.execute_next_command()
+            elif command.startswith('!delay'):
+                self.execute_delay(command)
+            else:
+                # Неизвестная команда, пропускаем
+                self.execute_next_command()
         except Exception as e:
             if not self.silent_mode:
                 print(f"{self.colors['red']}Error executing command: {command}{self.colors['reset']}")
                 print(f"Error details: {e}")
+            self.execute_next_command()
+    
+    def execute_delay(self, command):
+        """Обрабатывает команду !delay с секундами (неблокирующая)"""
+        match = re.search(r'!delay\(([\d.]+)\)', command)
+        if match:
+            seconds = float(match.group(1).strip())
+            self.delay_active = True
+            self.delay_end_time = time.time() + seconds
+            
+            if not self.silent_mode:
+                print(f"{self.colors['blue']}⏳ Delay: {seconds}s{self.colors['reset']}")
+        else:
+            # Если команда не распознана, продолжаем выполнение
+            self.execute_next_command()
     
     def execute_set_map(self, command):
         match = re.search(r'\$map\.set\(([^)]+)\)', command)
@@ -200,13 +255,3 @@ class ScriptRunner:
                 item_data = self.item_loader.get_item(item_id)
                 if item_data:
                     print(f"{self.colors['green']}✓ Item '{item_data.get('name')}' added to slot {slot}{self.colors['reset']}")
-    
-    def execute_function(self, command):
-        if command == '$function.nullstroke':
-            if not self.silent_mode:
-                print()
-        elif command.startswith('$function.delay'):
-            match = re.search(r'\$function\.delay\((\d+)\)', command)
-            if match:
-                delay_ms = int(match.group(1))
-                time.sleep(delay_ms / 1000)
