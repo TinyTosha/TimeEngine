@@ -15,6 +15,7 @@ class QuestSystem:
         self.active_quests = {}
         self.completed_quests = set()
         self.kill_counter = {}  # Счетчик убийств по ID врагов
+        self.quest_progress = {}  # Отдельный прогресс для каждого квеста
         self.load_quests()
     
     def load_quests(self):
@@ -33,8 +34,9 @@ class QuestSystem:
                         print(f"Error loading quest {quest_file}: {e}")
     
     def give_quest(self, quest_id):
-        if quest_id in self.quests and quest_id not in self.active_quests and quest_id not in self.completed_quests:
-            # Инициализируем прогресс для всех задач квеста
+        """Выдает квест игроку, если он еще не активен"""
+        if quest_id in self.quests and quest_id not in self.active_quests:
+            # Сбрасываем прогресс при выдаче квеста
             quest = self.quests[quest_id]
             tasks = quest.get('quest_task', [])
             task_progress = {}
@@ -44,11 +46,12 @@ class QuestSystem:
                     match = re.search(r'!quest_kill\((\d+),\s*(\d+)\)', task)
                     if match:
                         enemy_id = int(match.group(1))
+                        # Начинаем с 0, даже если враги уже убиты
                         task_progress[i] = {
                             'type': 'kill',
                             'enemy_id': enemy_id,
                             'required': int(match.group(2)),
-                            'current': 0
+                            'current': 0  # Всегда начинаем с 0
                         }
             
             self.active_quests[quest_id] = {
@@ -57,13 +60,28 @@ class QuestSystem:
             }
             print(f"\033[34m[i] Quest '{self.quests[quest_id].get('name')}' started!\033[0m")
             return True
+        
+        # Если квест уже завершен, можно перезапустить его
+        elif quest_id in self.completed_quests:
+            # Удаляем из завершенных и запускаем заново
+            self.completed_quests.remove(quest_id)
+            return self.give_quest(quest_id)
+        
         return False
     
     def cancel_quest(self, quest_id):
+        """Отменяет квест и сбрасывает его прогресс"""
         if quest_id in self.active_quests:
             quest_name = self.quests[quest_id].get('name', 'Unknown Quest')
+            
+            # Сбрасываем прогресс этого квеста
+            for task_id, task_info in self.active_quests[quest_id]['progress'].items():
+                if task_info['type'] == 'kill':
+                    # Не сбрасываем общий счетчик убийств, только прогресс квеста
+                    pass
+            
             del self.active_quests[quest_id]
-            print(f"\033[34m[i] Quest '{quest_name}' canceled!\033[0m")
+            print(f"\033[34m[i] Quest '{quest_name}' canceled and progress reset!\033[0m")
             return True
         return False
     
@@ -83,8 +101,9 @@ class QuestSystem:
         
         for task_id, task_info in quest_data['progress'].items():
             if task_info['type'] == 'kill' and task_info['enemy_id'] == enemy_id:
-                current_kills = self.kill_counter.get(enemy_id, 0)
-                task_info['current'] = min(current_kills, task_info['required'])
+                # Увеличиваем прогресс, но не больше required
+                if task_info['current'] < task_info['required']:
+                    task_info['current'] += 1
                 
                 # Логируем прогресс
                 enemy_name = f"Enemy {enemy_id}"

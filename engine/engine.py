@@ -4,6 +4,7 @@ import yaml
 import re
 import shutil
 import math
+import time
 from .item_loader import ItemLoader
 from .inventory import Inventory
 from .script_runner import ScriptRunner
@@ -11,6 +12,7 @@ from .cache_manager import CacheManager
 from .entity_manager import EntityManager
 from .health_system import HealthSystem
 from .quest_system import QuestSystem
+from .npc_system import NPCSystem
 
 class Camera:
     def __init__(self, screen_width, screen_height):
@@ -87,7 +89,7 @@ class RPGEngine:
     def __init__(self, screen_width=800, screen_height=600):
         pygame.init()
         self.screen = pygame.display.set_mode((screen_width, screen_height))
-        pygame.display.set_caption("TimeEngine v5")
+        pygame.display.set_caption("TimeEngine v7")
         
         self.clock = pygame.time.Clock()
         self.running = True
@@ -117,6 +119,10 @@ class RPGEngine:
         # Система квестов
         self.quest_system = QuestSystem(self.entity_manager, self.inventory, self.health_system, self.item_loader, self.localization, self.script_runner)
         self.script_runner.quest_system = self.quest_system
+        
+        # Система NPC
+        self.npc_system = NPCSystem(self.script_runner)
+        self.script_runner.npc_system = self.npc_system
         
         # Игрок
         self.player = self.create_player()
@@ -241,6 +247,10 @@ class RPGEngine:
         if keys[pygame.K_d]:
             self.player["rect"].x += self.player_speed
         
+        # Взаимодействие с NPC по нажатию E
+        if keys[pygame.K_e] and not self.npc_system.active_npc:
+            self.npc_system.handle_interaction()
+        
         # Обновляем кд клавиш
         for key in self.key_cooldowns:
             if self.key_cooldowns[key] > 0:
@@ -271,6 +281,9 @@ class RPGEngine:
         
         # Обновляем квесты
         self.quest_system.update_quests()
+        
+        # Обновляем NPC с позицией игрока - ИСПРАВЛЕННАЯ СТРОКА!
+        self.npc_system.update(player_pos)
         
         # Обновляем камеру
         self.camera.update(self.player["rect"].centerx, self.player["rect"].centery)
@@ -411,7 +424,10 @@ class RPGEngine:
         # Отрисовка сущностей с учетом камеры
         self.entity_manager.render(self.screen, camera_offset)
         
-        # Отрисовка игрока с учетом камеры
+        # Отрисовка NPC с учетом камеры
+        self.npc_system.render(self.screen, camera_offset)
+        
+        # Отрисовка игрока с учетом камера
         player_x = self.player["rect"].x - camera_offset[0]
         player_y = self.player["rect"].y - camera_offset[1]
         
@@ -451,6 +467,9 @@ class RPGEngine:
         # Отрисовка деталей квеста если выбрано
         if self.show_quest_details and self.selected_quest_id:
             self.render_quest_details()
+        
+        # Отрисовка диалога NPC
+        self.npc_system.render_dialog(self.screen)
         
         pygame.display.flip()
     
@@ -727,6 +746,10 @@ class RPGEngine:
                         self.running = False
                     elif event.type == pygame.MOUSEBUTTONDOWN:
                         if event.button == 1:
+                            # Проверяем клик по диалогу NPC
+                            if self.npc_system.handle_dialog_click(event.pos):
+                                continue
+                            
                             # Проверяем клик по кнопке закрытия квеста
                             if self.show_quest_details and self.selected_quest_id:
                                 close_rect = pygame.Rect(200 + 400 - 40, 100 + 10, 30, 30)

@@ -87,6 +87,8 @@ class ScriptRunner:
                 self.execute_function(command)
             elif command.startswith('$enemy.spawn'):
                 self.execute_enemy_spawn(command)
+            elif command.startswith('$npc.spawn'):
+                self.execute_npc_spawn(command)
             elif command.startswith('$call.script'):
                 self.execute_call_script(command)
             elif command.startswith('$recall.script'):
@@ -95,9 +97,31 @@ class ScriptRunner:
                 self.execute_give_quest(command)
             elif command.startswith('$quest.Cancel'):
                 self.execute_cancel_quest(command)
+            elif command.startswith('$npc.dialog'):
+                self.execute_npc_dialog(command)
         except Exception as e:
             if not self.silent_mode:
                 print(f"{self.colors['red']}Error executing command: {command}{self.colors['reset']}")
+    
+    def execute_npc_spawn(self, command):
+        match = re.search(r'\$npc\.spawn\(([^,]+),\s*([^,]+),\s*([^,]+),\s*([^)]+)\)', command)
+        if match and hasattr(self, 'npc_system'):
+            npc_id = int(match.group(1).strip())
+            x = int(match.group(2).strip())
+            y = int(match.group(3).strip())
+            initialize = match.group(4).strip().lower() == 'true'
+        
+            result = self.npc_system.spawn_npc(npc_id, x, y, initialize)
+            if result and initialize and not self.silent_mode:
+                print(f"{self.colors['green']}✓ Spawned NPC {npc_id} at ({x}, {y}){self.colors['reset']}")
+
+    def execute_npc_dialog(self, command):
+        match = re.search(r'\$npc\.dialog\(([^)]+)\)', command)
+        if match and hasattr(self, 'npc_system'):
+            npc_id = int(match.group(1).strip())
+            success = self.npc_system.start_dialog(npc_id)
+            if success and not self.silent_mode:
+                print(f"{self.colors['blue']}✓ Started dialog with NPC {npc_id}{self.colors['reset']}")
     
     def execute_simple_log(self, command):
         match = re.search(r'\$log\.(\w+)\(["\']([^"\']+)["\']\)', command)
