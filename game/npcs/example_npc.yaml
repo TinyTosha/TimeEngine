@@ -32,3 +32,9 @@ npc:
         nextdialog: false
         script:
           - "@close"
+      button3:
+        text: "SupeSectetButtonForTest"
+        nextdialog: false
+        script: 
+          - "@open.menu(0)"
+          - "@close"

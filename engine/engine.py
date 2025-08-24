@@ -14,6 +14,8 @@ from .health_system import HealthSystem
 from .quest_system import QuestSystem
 from .npc_system import NPCSystem
 from .map_system import MapSystem
+from .value_system import ValueSystem
+from .menu_system import MenuSystem
 
 class Camera:
     def __init__(self, screen_width, screen_height):
@@ -90,11 +92,12 @@ class RPGEngine:
     def __init__(self, screen_width=800, screen_height=600):
         pygame.init()
         self.screen = pygame.display.set_mode((screen_width, screen_height))
-        pygame.display.set_caption("TimeEngine v8")
+        pygame.display.set_caption("TimeEngine v9")
         
         self.clock = pygame.time.Clock()
         self.running = True
         self.delta_time = 0
+        self.menu_cooldown_duration = 10
         
         # Локализация
         self.localization = Localization()
@@ -108,6 +111,9 @@ class RPGEngine:
         # Менеджер кэша
         self.cache_manager = CacheManager()
         
+        # Система значений (валют) - ДОЛЖНА БЫТЬ ПЕРВОЙ!
+        self.value_system = ValueSystem(self.cache_manager)
+        
         # Загрузка ресурсов
         self.item_loader = ItemLoader()
         self.inventory = Inventory(self.cache_manager)
@@ -117,17 +123,25 @@ class RPGEngine:
         self.entity_manager = EntityManager(self.script_runner)
         self.script_runner.entity_manager = self.entity_manager
         
-        # Система квестов
-        self.quest_system = QuestSystem(self.entity_manager, self.inventory, self.health_system, self.item_loader, self.localization, self.script_runner)
+        # Система квестов (теперь с value_system)
+        self.quest_system = QuestSystem(self.entity_manager, self.inventory, self.health_system, 
+                                      self.item_loader, self.localization, self.script_runner, self.value_system)
         self.script_runner.quest_system = self.quest_system
         
         # Система NPC
         self.npc_system = NPCSystem(self.script_runner)
         self.script_runner.npc_system = self.npc_system
         
-        # Система карт (ИСПРАВЛЕННАЯ СТРОКА!)
+        # Система карт
         self.map_system = MapSystem(self.entity_manager, self.npc_system)
         self.script_runner.map_system = self.map_system
+        
+        # Система меню (теперь с value_system)
+        self.menu_system = MenuSystem(self.script_runner, self.value_system)
+        self.script_runner.menu_system = self.menu_system
+        
+        # Передаем value_system в script_runner
+        self.script_runner.value_system = self.value_system
         
         # Игрок
         self.player = self.create_player()
@@ -278,14 +292,13 @@ class RPGEngine:
             new_x -= self.player_speed
         if keys[pygame.K_d]:
             new_x += self.player_speed
-
-        self.script_runner.update(self.delta_time)
         
         # Применяем движение с проверкой коллизий
         self.map_system.update_player_position(self.player["rect"], new_x, new_y)
         
+        self.menu_system.update_cooldowns()
         # Взаимодействие с NPC по нажатию E
-        if keys[pygame.K_e] and not self.npc_system.active_npc:
+        if keys[pygame.K_e] and not self.npc_system.active_npc and not self.menu_system.active_menu:
             self.npc_system.handle_interaction()
         
         # Обновляем кд клавиш
@@ -322,6 +335,9 @@ class RPGEngine:
         # Обновляем NPC с позицией игрока
         self.npc_system.update(player_pos)
         
+        # Обновляем скрипты
+        self.script_runner.update(self.delta_time)
+        
         # Обновляем камеру
         self.camera.update(self.player["rect"].centerx, self.player["rect"].centery)
         
@@ -334,6 +350,41 @@ class RPGEngine:
         
         # Проверка кликов по квестам
         self.check_quest_clicks()
+        
+        # Обработка кликов мыши
+        mouse_click = pygame.mouse.get_pressed()
+        if mouse_click[0]:
+            mouse_pos = pygame.mouse.get_pos()
+            
+            # Сначала проверяем клик по меню
+            if self.menu_system.handle_click(mouse_pos):
+                return
+            
+            # Затем проверяем клик по диалогу NPC
+            if self.npc_system.handle_dialog_click(mouse_pos):
+                return
+            
+            # Проверяем клик по кнопке закрытия квеста
+            if self.show_quest_details and self.selected_quest_id:
+                close_rect = pygame.Rect(200 + 400 - 40, 100 + 10, 30, 30)
+                if close_rect.collidepoint(mouse_pos):
+                    self.show_quest_details = False
+                    self.selected_quest_id = None
+                    return
+                
+                # Проверяем клик по кнопке отмены квеста
+                cancel_rect = pygame.Rect(200 + 400 - 100, 100 + 300 - 40, 80, 30)
+                if cancel_rect.collidepoint(mouse_pos):
+                    self.quest_system.cancel_quest(self.selected_quest_id)
+                    self.show_quest_details = False
+                    self.selected_quest_id = None
+                    return
+            
+            # Проверяем клик по атаке
+            if self.selected_item and self.get_current_cooldown() <= 0 and self.item_state == "idle":
+                item_data = self.item_loader.get_item(self.selected_item['id'])
+                if item_data and item_data.get('type', {}).get('sword'):
+                    self.start_attack()
     
     def check_quest_clicks(self):
         mouse_pos = pygame.mouse.get_pos()
@@ -449,9 +500,22 @@ class RPGEngine:
                     self.cache_manager.save_slot_cooldown(self.selected_slot, cooldown_frames)
     
     def cleanup(self):
+        # Сохраняем значения
+        self.value_system.save_values()
+        
+        # Очищаем кэш
         cache_dir = "engine/cache"
         if os.path.exists(cache_dir):
             shutil.rmtree(cache_dir)
+        
+        # Очищаем __pycache__
+        pycache_dir = "engine/__pycache__"
+        if os.path.exists(pycache_dir):
+            shutil.rmtree(pycache_dir)
+        
+        pycache_dir = "game/__pycache__"
+        if os.path.exists(pycache_dir):
+            shutil.rmtree(pycache_dir)
     
     def render(self):
         self.screen.fill((30, 30, 40))
@@ -464,7 +528,7 @@ class RPGEngine:
         # Отрисовка сущностей с учетом камеры
         self.entity_manager.render(self.screen, camera_offset)
         
-        # Отрисовка NPC с учетом камеры
+        # Отрисовка NPC с учетом камеря
         self.npc_system.render(self.screen, camera_offset)
         
         # Отрисовка игрока с учетом камеры
@@ -510,6 +574,9 @@ class RPGEngine:
         
         # Отрисовка диалога NPC
         self.npc_system.render_dialog(self.screen)
+        
+        # Отрисовка меню
+        self.menu_system.render(self.screen)
         
         pygame.display.flip()
     
@@ -616,6 +683,19 @@ class RPGEngine:
                     reward_surface = desc_font.render(reward_text, True, (0, 255, 0))
                     self.screen.blit(reward_surface, (details_x + padding, details_y + y_offset))
                     y_offset += 25
+            
+            elif reward.startswith('!quest_reward_value('):
+                match = re.search(r'!quest_reward_value\((\d+),\s*([^)]+)\)', reward)
+                if match:
+                    value_id = int(match.group(1))
+                    amount = int(match.group(2))
+                    value_name = f"Value {value_id}"
+                    if self.value_system and value_id in self.value_system.values:
+                        value_name = self.value_system.values[value_id]['name']
+                    reward_text = f"+{amount} {value_name}"
+                    reward_surface = desc_font.render(reward_text, True, (0, 255, 0))
+                    self.screen.blit(reward_surface, (details_x + padding, details_y + y_offset))
+                    y_offset += 25
         
         # Кнопка отмены квеста
         cancel_rect = pygame.Rect(details_x + details_width - 100, details_y + details_height - 40, 80, 30)
@@ -624,7 +704,7 @@ class RPGEngine:
         cancel_text = cancel_font.render("Cancel", True, (255, 255, 255))
         self.screen.blit(cancel_text, (cancel_rect.x + 20, cancel_rect.y + 8))
         
-        # Кнопка закрытия
+        # Кнопка закрытия (РИСУЕТСЯ ПОСЛЕДНЕЙ - ПОВЕРХ ВСЕГО)
         close_rect = pygame.Rect(details_x + details_width - 40, details_y + 10, 30, 30)
         pygame.draw.rect(self.screen, (255, 0, 0), close_rect)
         close_font = pygame.font.Font(None, 24)
@@ -784,32 +864,6 @@ class RPGEngine:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
-                    elif event.type == pygame.MOUSEBUTTONDOWN:
-                        if event.button == 1:
-                            # Проверяем клик по диалогу NPC
-                            if self.npc_system.handle_dialog_click(event.pos):
-                                continue
-                            
-                            # Проверяем клик по кнопке закрытия квеста
-                            if self.show_quest_details and self.selected_quest_id:
-                                close_rect = pygame.Rect(200 + 400 - 40, 100 + 10, 30, 30)
-                                if close_rect.collidepoint(event.pos):
-                                    self.show_quest_details = False
-                                    self.selected_quest_id = None
-                                    continue
-                                
-                                # Проверяем клик по кнопке отмены квеста
-                                cancel_rect = pygame.Rect(200 + 400 - 100, 100 + 300 - 40, 80, 30)
-                                if cancel_rect.collidepoint(event.pos):
-                                    self.quest_system.cancel_quest(self.selected_quest_id)
-                                    self.show_quest_details = False
-                                    self.selected_quest_id = None
-                                    continue
-                            
-                            if self.selected_item and self.get_current_cooldown() <= 0 and self.item_state == "idle":
-                                item_data = self.item_loader.get_item(self.selected_item['id'])
-                                if item_data and item_data.get('type', {}).get('sword'):
-                                    self.start_attack()
                 
                 self.handle_input()
                 self.render()

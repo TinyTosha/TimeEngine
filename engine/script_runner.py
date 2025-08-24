@@ -4,14 +4,16 @@ import time
 import pygame
 
 class ScriptRunner:
-    def __init__(self, inventory, item_loader, health_system=None):
+    def __init__(self, inventory, item_loader, health_system=None, value_system=None):
         self.inventory = inventory
         self.item_loader = item_loader
         self.health_system = health_system
+        self.value_system = value_system
         self.entity_manager = None
         self.quest_system = None
         self.npc_system = None
         self.map_system = None
+        self.menu_system = None
         self.colors = {
             'green': '\033[32m',
             'red': '\033[31m',
@@ -31,14 +33,18 @@ class ScriptRunner:
         self.delay_end_time = 0
         self.delay_commands = []
         self.current_delay_index = 0
+        
+        # Для условных операторов
+        self.if_condition = False
+        self.if_skip = False
+        self.if_level = 0
     
     def update(self, delta_time):
-        """Обновляет состояние скриптов (вызывается каждый кадр)"""
+        """Обновляет состояние скриптов"""
         if self.delay_active:
             current_time = time.time()
             if current_time >= self.delay_end_time:
                 self.delay_active = False
-                # Продолжаем выполнение скрипта после задержки
                 self.continue_script_execution()
     
     def run_script(self, file_path):
@@ -108,6 +114,26 @@ class ScriptRunner:
     
     def execute_command(self, command):
         try:
+            # Обработка условных операторов
+            if command.startswith('&'):
+                self.handle_conditional(command)
+                return
+            
+            # Если мы в режиме пропуска (условие false)
+            if self.if_skip and self.if_level > 0:
+                return
+            
+            # Обработка значений
+            if command.startswith('%'):
+                self.handle_value_command(command)
+                return
+            
+            # Обработка специальных команд
+            if command.startswith('@'):
+                self.handle_special_command(command)
+                return
+            
+            # Обработка обычных команд
             if command.startswith('$log.') and '(' in command and ')' in command:
                 self.execute_simple_log(command)
                 self.execute_next_command()
@@ -141,13 +167,72 @@ class ScriptRunner:
             elif command.startswith('!delay'):
                 self.execute_delay(command)
             else:
-                # Неизвестная команда, пропускаем
                 self.execute_next_command()
+                
         except Exception as e:
             if not self.silent_mode:
                 print(f"{self.colors['red']}Error executing command: {command}{self.colors['reset']}")
                 print(f"Error details: {e}")
             self.execute_next_command()
+    
+    def handle_conditional(self, command):
+        """Обрабатывает условные операторы"""
+        if command == '&end':
+            self.if_level = max(0, self.if_level - 1)
+            if self.if_level == 0:
+                self.if_skip = False
+            self.execute_next_command()
+            return
+        
+        if command.startswith('&') and ':' in command:
+            self.if_level += 1
+            condition = command[1:].split(':')[0].strip()
+            
+            # Проверяем условие с значениями
+            if '>' in condition:
+                parts = condition.split('>')
+                left = parts[0].strip()
+                right = parts[1].strip()
+                
+                if left.startswith('%') and '.' in left:
+                    # Обработка значений %0.v
+                    value_parts = left[1:].split('.')
+                    value_id = int(value_parts[0])
+                    left_value = self.value_system.get_value(value_id) if self.value_system else 0
+                    right_value = float(right)
+                    self.if_skip = not (left_value > right_value)
+            
+            self.execute_next_command()
+    
+    def handle_value_command(self, command):
+        """Обрабатывает команды с значениями"""
+        if '-=' in command:
+            parts = command.split('-=')
+            left = parts[0].strip()
+            right = parts[1].strip()
+            
+            if left.startswith('%') and '.' in left:
+                value_parts = left[1:].split('.')
+                value_id = int(value_parts[0])
+                amount = float(right)
+                if self.value_system:
+                    self.value_system.subtract_value(value_id, amount)
+        
+        self.execute_next_command()
+    
+    def handle_special_command(self, command):
+        """Обрабатывает специальные команды"""
+        if command == '@close.menu' and self.menu_system:
+            self.menu_system.close_menu()
+        elif command.startswith('@open.menu') and self.menu_system:
+            match = re.search(r'@open\.menu\(([^)]+)\)', command)
+            if match:
+                menu_id = int(match.group(1))
+                self.menu_system.open_menu(menu_id)
+        elif command == '@close' and self.npc_system:
+            self.npc_system.active_npc = None
+        
+        self.execute_next_command()
     
     def execute_delay(self, command):
         """Обрабатывает команду !delay с секундами (неблокирующая)"""
@@ -248,10 +333,28 @@ class ScriptRunner:
         match = re.search(r'\$inventory\.GiveItem\(([^,]+),\s*([^)]+)\)', command)
         if match:
             item_id = int(match.group(1).strip())
-            slot = int(match.group(2).strip())
+            slot_str = match.group(2).strip().lower()
             
-            success = self.inventory.give_item(item_id, slot)
-            if success and not self.silent_mode:
-                item_data = self.item_loader.get_item(item_id)
-                if item_data:
-                    print(f"{self.colors['green']}✓ Item '{item_data.get('name')}' added to slot {slot}{self.colors['reset']}")
+            if slot_str == 'false':
+                # Ищем свободный слот
+                for slot in range(9):
+                    if not self.inventory.get_item(slot):
+                        success = self.inventory.give_item(item_id, slot)
+                        if success and not self.silent_mode:
+                            item_data = self.item_loader.get_item(item_id)
+                            if item_data:
+                                print(f"{self.colors['green']}✓ Item '{item_data.get('name')}' added to free slot {slot}{self.colors['reset']}")
+                        return
+            else:
+                try:
+                    slot = int(slot_str)
+                    success = self.inventory.give_item(item_id, slot)
+                    if success and not self.silent_mode:
+                        item_data = self.item_loader.get_item(item_id)
+                        if item_data:
+                            print(f"{self.colors['green']}✓ Item '{item_data.get('name')}' added to slot {slot}{self.colors['reset']}")
+                except ValueError:
+                    if not self.silent_mode:
+                        print(f"{self.colors['red']}Error: Invalid slot '{slot_str}'{self.colors['reset']}")
+        
+        self.execute_next_command()

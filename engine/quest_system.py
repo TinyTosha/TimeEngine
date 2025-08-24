@@ -4,13 +4,14 @@ import yaml
 import re
 
 class QuestSystem:
-    def __init__(self, entity_manager, inventory, health_system, item_loader, localization, script_runner):
+    def __init__(self, entity_manager, inventory, health_system, item_loader, localization, script_runner, value_system):
         self.entity_manager = entity_manager
         self.inventory = inventory
         self.health_system = health_system
         self.item_loader = item_loader
         self.localization = localization
         self.script_runner = script_runner
+        self.value_system = value_system
         self.quests = {}
         self.active_quests = {}
         self.completed_quests = set()
@@ -165,6 +166,14 @@ class QuestSystem:
                     if not self.inventory.get_item(slot):
                         self.inventory.give_item(item_id, slot)
                         break
+        
+        elif reward.startswith('!quest_reward_value('):
+            match = re.search(r'!quest_reward_value\((\d+),\s*([^)]+)\)', reward)
+            if match:
+                value_id = int(match.group(1))
+                amount = int(match.group(2))
+                if self.value_system:
+                    self.value_system.add_value(value_id, amount)
     
     def render_quest_log(self, screen):
         if not self.active_quests:

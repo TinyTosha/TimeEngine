@@ -5,6 +5,7 @@ class CacheManager:
     def __init__(self, cache_dir="engine/cache"):
         self.cache_dir = cache_dir
         self.slot_cooldowns = {}
+        self.values_cache = {}
     
     def save_slot_cooldown(self, slot, cooldown):
         """Сохраняет кд для слота"""
@@ -70,3 +71,66 @@ class CacheManager:
         # Удаляем завершенные кд
         for slot in slots_to_remove:
             self.clear_slot_cooldown(slot)
+    
+    def save_values(self, values):
+        """Сохраняет значения в кэш"""
+        values_data = {}
+        for value_id, value_data in values.items():
+            values_data[f"value_{value_id}"] = value_data
+        
+        file_path = os.path.join(self.cache_dir, "values.yaml")
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        
+        with open(file_path, 'w', encoding='utf-8') as file:
+            yaml.dump(values_data, file)
+    
+    def load_values(self):
+        """Загружает значения из кэша"""
+        values = {}
+        file_path = os.path.join(self.cache_dir, "values.yaml")
+        
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as file:
+                    values_data = yaml.safe_load(file) or {}
+                
+                for key, value_data in values_data.items():
+                    if isinstance(value_data, dict):
+                        values[value_data.get('id')] = {
+                            'name': value_data.get('name', f'Value {value_data.get("id")}'),
+                            'value': value_data.get('value', 0),
+                            'min': value_data.get('min', 0),
+                            'max': value_data.get('max', float('inf'))
+                        }
+            except Exception as e:
+                print(f"Error loading values from cache: {e}")
+        
+        # Если нет кэша, загружаем из конфига
+        if not values:
+            values = self.load_values_from_config()
+            self.save_values(values)
+        
+        return values
+    
+    def load_values_from_config(self):
+        """Загружает значения из конфига (резервный вариант)"""
+        values = {}
+        config_path = os.path.join("game", "config", "values.yaml")
+        
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as file:
+                    values_data = yaml.safe_load(file) or {}
+                
+                for value_id, value_data in values_data.items():
+                    if isinstance(value_data, dict):
+                        values[value_data.get('id')] = {
+                            'name': value_data.get('name', f'Value {value_data.get("id")}'),
+                            'value': value_data.get('start_value', 0),
+                            'min': value_data.get('min', 0),
+                            'max': value_data.get('max', float('inf'))
+                        }
+            except Exception as e:
+                print(f"Error loading values from config: {e}")
+        
+        return values

@@ -1,0 +1,36 @@
+name: "NPC Shop 1"
+id: 0
+menu:
+  config:
+    title: "NPC Shop example"
+    show_cross: true
+  ui:
+    icon_sword:
+      type: icon
+      texture: "bladetest.png"
+      icon_size: [64, 64]
+      frame: false
+      frame_size: [65, 65]
+      pos: [150, 150]
+    
+    text_sword:
+      type: text
+      text: "Dark Sword - 100 Coins"
+      text_size: 22
+      pos: [150, 220]
+    
+    buy_button:
+      type: button
+      text: "BUY"
+      size: [100, 30]
+      pos: [150, 250]
+      script:
+        - "&%0.v > 99 :"
+        - "$inventory.GiveItem(1, false)"
+        - "%0.v -= 100"
+        - "&end"
+    value_text:
+      type: text
+      text: "Coins: %0.v"
+      text_size: 16
+      pos: [240, 150]
